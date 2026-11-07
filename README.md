@@ -12,8 +12,12 @@ It loads in about 40 ms. A first figure, such as a posterior predictive
 check with 50 overlaid densities and a histogram, compiles almost nothing
 because the package's code is cached at precompile time.
 
-The function names follow Makie (`Figure`, `Axis`, `lines!`, `hist!`, ...),
-so Makie plotting code ports with few changes.
+The interface is borrowed from [Makie](https://github.com/MakieOrg/Makie.jl):
+the function names (`Figure`, `Axis`, `lines!`, `hist!`, ...), the
+`fig[i, j]` layout, the keyword names and the default colour cycle all follow
+Makie, so Makie plotting code ports with few changes. Credit for that design
+goes to the Makie developers; this package only reimplements a small part of
+it.
 
 ## Example
 
