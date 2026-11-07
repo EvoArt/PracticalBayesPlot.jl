@@ -147,22 +147,38 @@ rowsize!(fig::Figure, i::Integer, h::Real) = rowsize!(fig, i, Relative(h))
 
 """
     xlims!(ax, low, high)
-    ylims!(ax, low, high)
-    limits!(ax, xlow, xhigh, ylow, yhigh)
+    xlims!(low, high)
 
-Fix axis limits; `nothing` leaves a limit automatic. Without `ax`, they act
-on [`current_axis`](@ref).
+Fix the x limits of `ax`, or of [`current_axis`](@ref) when `ax` is left
+out; `nothing` leaves a limit automatic.
 """
 function xlims!(ax::Axis, lo, hi)
     l = ax.limits
     setfield!(ax, :limits, (_lim(lo), _lim(hi), l[3], l[4]))
     return ax
 end
+
+"""
+    ylims!(ax, low, high)
+    ylims!(low, high)
+
+Fix the y limits of `ax`, or of [`current_axis`](@ref) when `ax` is left
+out; `nothing` leaves a limit automatic.
+"""
 function ylims!(ax::Axis, lo, hi)
     l = ax.limits
     setfield!(ax, :limits, (l[1], l[2], _lim(lo), _lim(hi)))
     return ax
 end
+
+"""
+    limits!(ax, xlow, xhigh, ylow, yhigh)
+    limits!(xlow, xhigh, ylow, yhigh)
+
+Fix all four limits of `ax`, or of [`current_axis`](@ref) when `ax` is left
+out; `nothing` leaves a limit automatic. `ax.limits = ((xlow, xhigh), (ylow,
+yhigh))` does the same.
+"""
 limits!(ax::Axis, x1, x2, y1, y2) = (setfield!(ax, :limits, _parse_limits((x1, x2, y1, y2))); ax)
 xlims!(lo, hi) = xlims!(current_axis(), lo, hi)
 ylims!(lo, hi) = ylims!(current_axis(), lo, hi)

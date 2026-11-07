@@ -20,7 +20,7 @@ function nice_ticks(lo::Float64, hi::Float64, target::Int)
     for m in (1.0, 2.0, 2.5, 5.0, 10.0)
         step = m * mag
         n = floor(hi / step + 1e-9) - ceil(lo / step - 1e-9) + 1
-        score = (n < target ? 2 * (target - n) : n - target) + (m == 2.5 ? 1.0 : 0.0)
+        score = (n < target ? 2 * (target - n) : n - target) + (m == 2.5 ? 2.5 : 0.0)
         if n >= 2 && score < bestscore
             best, bestscore = step, score
         end
