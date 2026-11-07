@@ -1,0 +1,10 @@
+name = "PracticalBayesPlot"
+uuid = "abd9f751-687e-4400-a054-1391536a3b77"
+authors = ["Arthur Newbury <arn203@exeter.ac.uk>"]
+version = "0.1.0"
+
+[compat]
+julia = "1.10"
+
+[workspace]
+projects = ["test", "examples"]
