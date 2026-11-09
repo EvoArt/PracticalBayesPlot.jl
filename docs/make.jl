@@ -18,7 +18,7 @@ makedocs(;
     modules = [PracticalBayesPlot],
     format = Documenter.HTML(; prettyurls = get(ENV, "CI", nothing) == "true"),
     pages = ["Home" => "index.md", "API" => "api.md"],
-    checkdocs = :exports,
+    checkdocs = :public,
 )
 
 deploydocs(; repo = "github.com/EvoArt/PracticalBayesPlot.jl.git", devbranch = "main")

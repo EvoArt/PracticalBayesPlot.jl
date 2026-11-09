@@ -6,10 +6,13 @@
 # Run as a script to write the gallery to examples/out/:
 #     julia --project=examples examples/pbr_plots.jl
 
-using PracticalBayesPlot
+# The package exports nothing; bring the names used here into scope.
+import PracticalBayesPlot as PBP
+using PracticalBayesPlot: Figure, Axis, Relative, lines!, scatter!, stairs!, band!,
+    barplot!, hist!, density!, rangebars!, hlines!, vlines!, text!, axislegend,
+    xlims!, ylims!, limits!, colsize!, rowsize!, wong_colors, svg, save
 using Random
 
-const PBP = PracticalBayesPlot
 const YCOL = :black
 const REPCOL = (:steelblue, 0.25)
 

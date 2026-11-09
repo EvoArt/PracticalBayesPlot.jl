@@ -1,26 +1,37 @@
 # PracticalBayesPlot.jl
 
-[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://evoart.github.io/PracticalBayesPlot.jl/dev/)
-[![CI](https://github.com/EvoArt/PracticalBayesPlot.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/EvoArt/PracticalBayesPlot.jl/actions/workflows/CI.yml)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://evoart.github.io/PracticalBayesPlot.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://evoart.github.io/PracticalBayesPlot.jl/dev/)
+[![CI](https://github.com/EvoArt/PracticalBayesPlot.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/EvoArt/PracticalBayesPlot.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/EvoArt/PracticalBayesPlot.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/EvoArt/PracticalBayesPlot.jl)
 
-> **Proof of principle.** This package shows that pure Julia plotting can
-> be fast, with very low latency, when it targets a specific, small set of
-> plots rather than trying to plot everything.
-
-Small plotting package for Bayesian model checking: posterior predictive
-checks, effect plots, trace plots, residuals and interval plots. It is
-written in Julia only, has no dependencies, and draws figures as SVG.
+A very lightweight, pure Julia plotting package that targets the small set of
+plots typically used in the [Bayesian workflow](https://arxiv.org/abs/2011.01808):
+posterior predictive checks, effect plots, trace plots, residuals and
+interval plots. It has no dependencies and draws figures as SVG.
 
 It loads in about 40 ms. A first figure, such as a posterior predictive
 check with 50 overlaid densities and a histogram, compiles almost nothing
 because the package's code is cached at precompile time.
 
-The interface is borrowed from [Makie](https://github.com/MakieOrg/Makie.jl):
-the function names (`Figure`, `Axis`, `lines!`, `hist!`, ...), the
-`fig[i, j]` layout, the keyword names and the default colour cycle all follow
-Makie, so Makie plotting code ports with few changes. Credit for that design
-goes to the Makie developers; this package only reimplements a small part of
-it.
+The design is taken from [Makie](https://github.com/MakieOrg/Makie.jl): the
+function names (`Figure`, `Axis`, `lines!`, `hist!`, ...), the `fig[i, j]`
+layout, the keyword names and the default colour cycle all follow Makie, so
+Makie plotting code ports with few changes. Credit for that design goes to
+the Makie developers; this package reimplements a small part of it. Future
+work is planned to integrate the two, so that a `Figure` or `Axis` made with
+this package can be placed in a larger, more feature-rich Makie figure.
+
+## Usage
+
+The package exports nothing, because almost all of its names are also
+exported by Makie. Load it under a short name and qualify calls:
+
+```julia
+import PracticalBayesPlot as PBP
+```
+
+This works the same whether or not Makie is loaded in the session.
 
 ## Examples
 
@@ -31,26 +42,27 @@ for model output.
 
 <!-- figure: ppcheck -->
 ```julia
-using PracticalBayesPlot, Random
+import PracticalBayesPlot as PBP
+using Random
 rng = Xoshiro(1)
 y = 2 .+ randn(rng, 200)                  # observed data
 yrep = 2 .+ 1.1 .* randn(rng, 100, 200)   # 100 replicated data sets, one per row
 
-fig = Figure(; size = (760, 320))
-ax = Axis(fig[1, 1]; xlabel = "y", ylabel = "density", title = "Density overlay")
+fig = PBP.Figure(; size = (760, 320))
+ax = PBP.Axis(fig[1, 1]; xlabel = "y", ylabel = "density", title = "Density overlay")
 for s in 1:100
-    density!(ax, view(yrep, s, :); color = (:steelblue, 0.15), linewidth = 0.8,
-             label = s == 1 ? "y_rep" : "")
+    PBP.density!(ax, view(yrep, s, :); color = (:steelblue, 0.15), linewidth = 0.8,
+                 label = s == 1 ? "y_rep" : "")
 end
-density!(ax, y; color = :black, linewidth = 2.5, label = "y")
-axislegend(ax)
+PBP.density!(ax, y; color = :black, linewidth = 2.5, label = "y")
+PBP.axislegend(ax)
 
 sd(v) = sqrt(sum(abs2, v .- sum(v) / length(v)) / (length(v) - 1))
-ax2 = Axis(fig[1, 2]; xlabel = "sd(y_rep)", title = "Test statistic")
-hist!(ax2, [sd(view(yrep, s, :)) for s in 1:100]; bins = 20, color = (:steelblue, 0.5))
-vlines!(ax2, sd(y); color = :black, linewidth = 3)
-colsize!(fig, 1, Relative(0.6))
-save("ppcheck.svg", fig)
+ax2 = PBP.Axis(fig[1, 2]; xlabel = "sd(y_rep)", title = "Test statistic")
+PBP.hist!(ax2, [sd(view(yrep, s, :)) for s in 1:100]; bins = 20, color = (:steelblue, 0.5))
+PBP.vlines!(ax2, sd(y); color = :black, linewidth = 3)
+PBP.colsize!(fig, 1, PBP.Relative(0.6))
+PBP.save("ppcheck.svg", fig)
 ```
 
 ![Posterior predictive check](docs/src/assets/ppcheck.svg)
@@ -60,19 +72,19 @@ save("ppcheck.svg", fig)
 <!-- figure: effects -->
 ```julia
 x = range(0, 10; length = 50)
-fig = Figure(; size = (600, 360))
-ax = Axis(fig[1, 1]; xlabel = "dose", ylabel = "response",
-          title = "Posterior mean and 90% band")
+fig = PBP.Figure(; size = (600, 360))
+ax = PBP.Axis(fig[1, 1]; xlabel = "dose", ylabel = "response",
+              title = "Posterior mean and 90% band")
 for (i, (group, slope)) in enumerate((("control", 0.2), ("treated", 0.5)))
     xs = 10 .* rand(rng, 30)
-    scatter!(ax, xs, 1 .+ slope .* xs .+ 0.6 .* randn(rng, 30);
-             color = (i, 0.6), markersize = 6)
+    PBP.scatter!(ax, xs, 1 .+ slope .* xs .+ 0.6 .* randn(rng, 30);
+                 color = (i, 0.6), markersize = 6)
     mu = 1 .+ slope .* x
     half = 0.3 .+ 0.04 .* abs.(x .- 5)
-    band!(ax, x, mu .- half, mu .+ half; color = (i, 0.25))
-    lines!(ax, x, mu; color = i, linewidth = 2, label = group)
+    PBP.band!(ax, x, mu .- half, mu .+ half; color = (i, 0.25))
+    PBP.lines!(ax, x, mu; color = i, linewidth = 2, label = group)
 end
-axislegend(ax; position = :lt)
+PBP.axislegend(ax; position = :lt)
 ```
 
 ![Fitted lines with bands](docs/src/assets/effects.svg)
@@ -89,17 +101,17 @@ function ar1(rng, n, mu, phi)   # stands in for one MCMC chain
     return x
 end
 
-fig = Figure(; size = (760, 420))
+fig = PBP.Figure(; size = (760, 420))
 for (row, (name, mu)) in enumerate((("β₁", 0.5), ("σ", 1.2)))
-    trace = Axis(fig[row, 1]; ylabel = name, xlabel = row == 2 ? "iteration" : "")
-    dens = Axis(fig[row, 2]; xlabel = row == 2 ? "value" : "")
+    trace = PBP.Axis(fig[row, 1]; ylabel = name, xlabel = row == 2 ? "iteration" : "")
+    dens = PBP.Axis(fig[row, 2]; xlabel = row == 2 ? "value" : "")
     for chain in 1:4
         draws = ar1(rng, 500, mu, 0.7)
-        lines!(trace, draws; color = (chain, 0.7), linewidth = 0.7)
-        density!(dens, draws; color = chain)
+        PBP.lines!(trace, draws; color = (chain, 0.7), linewidth = 0.7)
+        PBP.density!(dens, draws; color = chain)
     end
 end
-colsize!(fig, 1, Relative(0.7))
+PBP.colsize!(fig, 1, PBP.Relative(0.7))
 ```
 
 ![Trace plots](docs/src/assets/trace.svg)
@@ -112,12 +124,12 @@ terms = ["dose × age", "sex: male", "dose", "age", "intercept"]
 est = [0.3, 0.05, 0.8, -0.35, 1.1]
 se = [0.15, 0.3, 0.25, 0.1, 0.2]
 
-fig = Figure(; size = (560, 300))
-ax = Axis(fig[1, 1]; xlabel = "coefficient", title = "Medians with 50% and 90% intervals")
-vlines!(ax, 0; color = :gray, linestyle = :dash)
-rangebars!(ax, terms, est .- 1.64se, est .+ 1.64se; direction = :x, color = :steelblue)
-rangebars!(ax, terms, est .- 0.67se, est .+ 0.67se; direction = :x, color = :steelblue, linewidth = 5)
-scatter!(ax, est, terms; color = :white, strokecolor = :steelblue, strokewidth = 2, markersize = 9)
+fig = PBP.Figure(; size = (560, 300))
+ax = PBP.Axis(fig[1, 1]; xlabel = "coefficient", title = "Medians with 50% and 90% intervals")
+PBP.vlines!(ax, 0; color = :gray, linestyle = :dash)
+PBP.rangebars!(ax, terms, est .- 1.64se, est .+ 1.64se; direction = :x, color = :steelblue)
+PBP.rangebars!(ax, terms, est .- 0.67se, est .+ 0.67se; direction = :x, color = :steelblue, linewidth = 5)
+PBP.scatter!(ax, est, terms; color = :white, strokecolor = :steelblue, strokewidth = 2, markersize = 9)
 ```
 
 ![Coefficient intervals](docs/src/assets/intervals.svg)
@@ -129,21 +141,23 @@ Strings as positions become categories, so `terms` labels the y axis.
 One-call forms make a figure with a single axis:
 
 ```julia
-fig = hist(randn(1000); bins = 40, axis = (; xlabel = "x"))
-lines!(current_axis(), [-2, 2], [0, 100])
+fig = PBP.hist(randn(1000); bins = 40, axis = (; xlabel = "x"))
+PBP.lines!(PBP.current_axis(), [-2, 2], [0, 100])
 ```
 
 ## Showing figures
 
 - VS Code, Jupyter and Pluto show a `Figure` inline (as SVG).
 - In a terminal REPL, displaying a `Figure` opens it in the browser.
-  `preview(fig)` does the same from anywhere.
-- `save("fig.svg", fig)` writes SVG; `save("fig.html", fig)` writes a page
-  holding the SVG. For PNG or PDF, convert the SVG (for example with
+  `PBP.preview(fig)` does the same from anywhere.
+- `PBP.save("fig.svg", fig)` writes SVG; `PBP.save("fig.html", fig)` writes a
+  page holding the SVG. For PNG or PDF, convert the SVG (for example with
   `rsvg-convert` or Inkscape).
-- `svg(fig)` returns the SVG as a string.
+- `PBP.svg(fig)` returns the SVG as a string.
 
 ## What it draws
+
+Names below are written without the `PBP.` prefix.
 
 | Function | Draws |
 |:---------|:------|
@@ -176,14 +190,8 @@ Axis attributes (keywords to `Axis`, or set later as `ax.xlabel = "..."`):
 `xlims!`, `ylims!`, `limits!`. Layout: `Axis(fig[i, j])`, with ranges to
 span cells (`fig[1:2, 1]`); `colsize!` and `rowsize!` set relative sizes.
 
-`PracticalBayesPlot.kde(x, grid)` is the density estimate `density!` uses,
+`PBP.kde(x, grid)` is the density estimate `density!` uses,
 for code that needs the numbers.
-
-## With Makie
-
-The package exports Makie's names, so loading both in one session makes
-unqualified calls such as `lines!` ambiguous. Use one per session, or
-`import PracticalBayesPlot as PBP` and qualify (`PBP.lines!`).
 
 ## Gallery
 

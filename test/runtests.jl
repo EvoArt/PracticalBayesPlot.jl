@@ -1,7 +1,18 @@
-using PracticalBayesPlot
+import PracticalBayesPlot as PBP
+# The package exports nothing; bring its public names into scope.
+using PracticalBayesPlot: Figure, Axis, Relative, current_axis,
+    lines!, lines, scatter!, scatter, stairs!, stairs, band!, band,
+    barplot!, barplot, hist!, hist, density!, density, ecdfplot!, ecdfplot,
+    rangebars!, rangebars, hlines!, vlines!, text!,
+    axislegend, xlims!, ylims!, limits!, colsize!, rowsize!,
+    wong_colors, svg, save, preview
 using Test
 
-const PBP = PracticalBayesPlot
+@testset "nothing is exported" begin
+    m = Module()
+    Core.eval(m, :(using PracticalBayesPlot))
+    @test !any(n -> isdefined(m, n), (:Figure, :Axis, :lines!, :hist, :save, :svg, :preview))
+end
 
 # check that every tag in an SVG string is closed in order
 function wellformed(s::AbstractString)
