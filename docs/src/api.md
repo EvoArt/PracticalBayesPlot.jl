@@ -12,6 +12,18 @@ PracticalBayesPlot
 Pages = ["api.md"]
 ```
 
+## Bayesian workflow plots
+
+```@docs
+traceplot
+densities
+intervals
+intervals!
+ppcheck
+ppcheck!
+todraws
+```
+
 ## Figures and axes
 
 ```@docs

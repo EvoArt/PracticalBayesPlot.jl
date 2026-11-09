@@ -1,8 +1,9 @@
 """
     PracticalBayesPlot
 
-Lightweight plotting for the Bayesian workflow: posterior predictive checks,
-effect plots, traces, residuals and intervals. Draws figures as SVG, has no
+Lightweight plotting for the Bayesian workflow: trace plots, posterior
+densities and intervals, and posterior predictive checks, plus the
+Makie-style primitives they are built from. Draws figures as SVG, has no
 dependencies, and loads in milliseconds.
 
 The package exports nothing. The API follows Makie's names (`Figure`, `Axis`,
@@ -10,9 +11,7 @@ The package exports nothing. The API follows Makie's names (`Figure`, `Axis`,
 
 ```julia
 import PracticalBayesPlot as PBP
-fig = PBP.Figure()
-ax = PBP.Axis(fig[1, 1])
-PBP.lines!(ax, 1:10, rand(10))
+PBP.traceplot((; mu = randn(1000, 4), sigma = exp.(randn(1000, 4))))
 ```
 """
 module PracticalBayesPlot
@@ -26,6 +25,7 @@ module PracticalBayesPlot
         :barplot!, :barplot, :hist!, :hist, :density!, :density, :ecdfplot!, :ecdfplot,
         :rangebars!, :rangebars, :hlines!, :vlines!, :text!,
         :axislegend, :xlims!, :ylims!, :limits!, :colsize!, :rowsize!,
+        :traceplot, :densities, :intervals, :intervals!, :ppcheck, :ppcheck!, :todraws,
         :wong_colors, :kde, :svg, :save, :preview))
 end
 
@@ -34,6 +34,7 @@ include("ticks.jl")
 include("types.jl")
 include("stats.jl")
 include("plots.jl")
+include("bayes.jl")
 include("render.jl")
 include("io.jl")
 include("precompile.jl")

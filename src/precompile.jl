@@ -59,6 +59,18 @@ function _workload()
     tmp = tempname()
     rm(save(tmp * ".svg", fig))
     rm(save(tmp * ".html", fig))
+
+    # Bayesian workflow plots, from the most common forms of draws (chains
+    # arrive as Draws, through the extensions)
+    nt = (; a=reshape(collect(range(0.0, 1.0; length=40)), 20, 2), b=reshape(sin.(1.0:40.0), 20, 2))
+    arr = reshape(cos.(1.0:120.0), 20, 3, 2)
+    yrep = reshape(sin.(1.0:60.0) .+ 0.5, 3, 20)
+    svg(traceplot(nt))
+    svg(densities(arr))
+    svg(intervals(nt))
+    for type in (:dens_overlay, :ecdf_overlay, :hist, :stat)
+        svg(ppcheck(y[1:20], yrep; type))
+    end
     CURRENT[] = nothing
     return nothing
 end
@@ -92,6 +104,14 @@ if ccall(:jl_generating_output, Cint, ()) == 1
     for f in (lines, scatter, stairs, band, barplot, hist, density, ecdfplot, rangebars)
         precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(f), Vararg{Any}})
     end
+    for f in (traceplot, densities, intervals)
+        precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(f), Any})
+        precompile(Tuple{typeof(f), Any})
+    end
+    precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(intervals!), Axis, Any})
+    precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(ppcheck), Any, Any})
+    precompile(Tuple{typeof(ppcheck), Any, Any})
+    precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(ppcheck!), Axis, Any, Any})
     precompile(Tuple{typeof(Core.kwcall), NamedTuple, Type{Axis}, GridPos})
     precompile(Tuple{typeof(Core.kwcall), NamedTuple, Type{Figure}})
     precompile(Tuple{Type{Figure}})
