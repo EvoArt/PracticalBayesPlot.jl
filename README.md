@@ -33,12 +33,64 @@ import PracticalBayesPlot as PBP
 
 This works the same whether or not Makie is loaded in the session.
 
-## Examples
+## Bayesian workflow plots
 
-The examples run in order in one session; the data are simulated stand-ins
-for model output.
+Each of the common plots takes one call:
 
-### Posterior predictive check
+| Function | Draws |
+|:---------|:------|
+| `PBP.traceplot(draws)` | trace and per-chain density of each parameter |
+| `PBP.densities(draws)` | posterior density of each parameter, by chain or pooled |
+| `PBP.intervals(draws)` | 50% and 90% intervals and medians, as bayesplot's `mcmc_intervals` |
+| `PBP.ppcheck(y, yrep; type)` | posterior predictive checks: `:dens_overlay`, `:ecdf_overlay`, `:hist`, `:stat`, `:bars` |
+
+`draws` can be a chain from [FlexiChains](https://github.com/penelopeysm/FlexiChains.jl)
+(what Turing.jl returns) or [MCMCChains](https://github.com/TuringLang/MCMCChains.jl),
+any [Tables.jl](https://github.com/JuliaData/Tables.jl) table such as a
+`DataFrame` (one column per parameter, plus an optional `chain` column), a
+`NamedTuple` of iterations × chains matrices, or an iterations × parameters
+× chains array. `PBP.todraws` reads them, and other packages can add methods
+to it for their own types.
+
+<!-- figure: bayes-trace -->
+```julia
+import PracticalBayesPlot as PBP
+using Random
+rng = Xoshiro(1)
+post = (; b_dose = 0.8 .+ 0.25 .* randn(rng, 500, 4),
+          b_age = -0.35 .+ 0.1 .* randn(rng, 500, 4),
+          sigma = exp.(0.1 .* randn(rng, 500, 4)))
+fig = PBP.traceplot(post; variables = [:b_dose, :sigma])
+```
+
+![Trace plots of two parameters](docs/src/assets/bayes-trace.svg)
+
+<!-- figure: bayes-intervals -->
+```julia
+fig = PBP.intervals(post)
+```
+
+![Interval plot](docs/src/assets/bayes-intervals.svg)
+
+<!-- figure: bayes-ppcheck -->
+```julia
+y = 2 .+ randn(rng, 200)                  # observed data
+yrep = 2 .+ 1.1 .* randn(rng, 50, 200)    # 50 replicated data sets, one per row
+fig = PBP.ppcheck(y, yrep)
+```
+
+![Posterior predictive density overlay](docs/src/assets/bayes-ppcheck.svg)
+
+Each returns a `Figure`. `PBP.intervals!(ax, draws)` and
+`PBP.ppcheck!(ax, y, yrep)` draw into an existing axis instead.
+
+## Building figures from the primitives
+
+The plots above are built from Makie-style primitives, which also compose
+into figures of your own. The examples run in order in one session; the
+data are simulated stand-ins for model output.
+
+### A posterior predictive check by hand
 
 <!-- figure: ppcheck -->
 ```julia
@@ -89,7 +141,7 @@ PBP.axislegend(ax; position = :lt)
 
 ![Fitted lines with bands](docs/src/assets/effects.svg)
 
-### Trace plots
+### Trace plots by hand
 
 <!-- figure: trace -->
 ```julia
@@ -116,7 +168,7 @@ PBP.colsize!(fig, 1, PBP.Relative(0.7))
 
 ![Trace plots](docs/src/assets/trace.svg)
 
-### Coefficient intervals
+### Coefficient intervals by hand
 
 <!-- figure: intervals -->
 ```julia
@@ -155,7 +207,7 @@ PBP.lines!(PBP.current_axis(), [-2, 2], [0, 100])
   `rsvg-convert` or Inkscape).
 - `PBP.svg(fig)` returns the SVG as a string.
 
-## What it draws
+## What the primitives draw
 
 Names below are written without the `PBP.` prefix.
 
@@ -195,11 +247,11 @@ for code that needs the numbers.
 
 ## Gallery
 
-[examples/pbr_plots.jl](https://github.com/EvoArt/PracticalBayesPlot.jl/blob/main/examples/pbr_plots.jl) draws PracticalBayesianRegression's
-plots (`pp_check` of every type, `plot_effects` with and without groups and
-for categorical predictors, `trace_plot`, `residual_plot`) and a
-bayesplot-style interval plot from plain arrays. Write them to
-`examples/out/` with
+[examples/pbr_plots.jl](https://github.com/EvoArt/PracticalBayesPlot.jl/blob/main/examples/pbr_plots.jl)
+draws the figures PracticalBayesianRegression makes (every `pp_check` type,
+`plot_effects` with and without groups and for categorical predictors,
+`trace_plot`, `residual_plot`) plus densities and intervals, from simulated
+arrays. Write them to `examples/out/` with
 
 ```
 julia --project=examples examples/pbr_plots.jl

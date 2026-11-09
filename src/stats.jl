@@ -69,3 +69,7 @@ function _bincounts(v::Vector{Float64}, edges::Vector{Float64})
     end
     return c
 end
+
+mean(x) = sum(x) / length(x)
+_quantile(x, p::Real) = _quantile_sorted(sort!(_f64(x)), Float64(p))
+median(x) = _quantile(x, 0.5)

@@ -5,8 +5,12 @@ using PracticalBayesPlot: Figure, Axis, Relative, current_axis,
     barplot!, barplot, hist!, hist, density!, density, ecdfplot!, ecdfplot,
     rangebars!, rangebars, hlines!, vlines!, text!,
     axislegend, xlims!, ylims!, limits!, colsize!, rowsize!,
+    traceplot, densities, intervals, intervals!, ppcheck, ppcheck!,
     wong_colors, svg, save, preview
-using Test
+using Random, Test
+using FlexiChains: FlexiChain, Parameter, Extra
+using MCMCChains: Chains
+using Tables: Tables
 
 @testset "nothing is exported" begin
     m = Module()
@@ -217,6 +221,95 @@ Base.display(d::FakeSVGDisplay, ::MIME"image/svg+xml", x) = (push!(d.shown, x); 
             s = svg(fig)
             @test wellformed(s)
             @test !occursin("NaN", s)
+        end
+    end
+
+    @testset "reading draws" begin
+        names_sizes(d) = (first.(d), size.(last.(d)))
+        @test names_sizes(PBP.todraws(randn(10))) == (["θ"], [(10, 1)])
+        @test names_sizes(PBP.todraws(randn(10, 2))) == (["θ[1]", "θ[2]"], [(10, 1), (10, 1)])
+        @test names_sizes(PBP.todraws(randn(10, 2, 3))) == (["θ[1]", "θ[2]"], [(10, 3), (10, 3)])
+        a = reshape(collect(1.0:20.0), 10, 2)
+        @test PBP.todraws((; a))[1] == ("a" => a)
+        @test names_sizes(PBP.todraws(["a" => a, :b => randn(10)])) == (["a", "b"], [(10, 2), (10, 1)])
+        @test names_sizes(PBP.todraws(Dict("a" => a))) == (["a"], [(10, 2)])
+        @test names_sizes(PBP.todraws("a" => a)) == (["a"], [(10, 2)])
+        # columns: the chain column splits draws, index and non-numeric columns are dropped
+        cols = (; chain=repeat([1, 2]; inner=10), iteration=repeat(1:10, 2), a=vec(a), g=fill("x", 20))
+        @test PBP.todraws(cols) == ["a" => a]
+        @test_throws ArgumentError PBP.todraws((; chain=[1, 1, 2], a=[1.0, 2.0, 3.0]))
+        @test_throws ArgumentError PBP.todraws(:x)
+        @test_throws ArgumentError traceplot((; a); variables=["b"])
+        @test first.(PBP._select(PBP.todraws((; a, b=a, c=a)), [:c, "a"])) == ["c", "a"]
+    end
+
+    @testset "Bayesian workflow plots" begin
+        rng = Xoshiro(2)
+        draws = (; mu=randn(rng, 200, 4), sigma=exp.(0.1 .* randn(rng, 200, 4)))
+        s = svg(traceplot(draws))
+        @test wellformed(s) && occursin(">mu<", s) && occursin(">sigma<", s)
+        @test count_of(s, r"<clipPath") == 4                         # 2 parameters × (trace, density)
+        @test count_of(svg(traceplot(draws; density=false, variables="mu")), r"<clipPath") == 1
+        s = svg(densities(draws; combine=true))
+        @test wellformed(s) && count_of(s, r"<clipPath") == 2
+        @test count_of(svg(densities(randn(rng, 50, 7); ncols=2)), r"<clipPath") == 7
+        fig = intervals(draws)
+        @test wellformed(svg(fig))
+        ax = fig.axes[1]
+        @test ax.ycategories == ["sigma", "mu"]                       # first parameter at the top
+        bars = filter(p -> p isa PBP.RangeBarsPlot, ax.plots)
+        @test length(bars) == 2 && bars[1].horizontal
+        # 90% interval of mu contains its 50% interval
+        @test bars[1].lo[2] < bars[2].lo[2] < bars[2].hi[2] < bars[1].hi[2]
+        ax2 = Axis(Figure()[1, 1])
+        intervals!(ax2, draws; prob=0.8, point=PBP.mean, color=:red)
+        @test length(ax2.plots) == 3
+        @test_throws ArgumentError intervals(draws; prob=1.5)
+
+        y = randn(rng, 80)
+        yrep = randn(rng, 30, 80)
+        for type in (:dens_overlay, :ecdf_overlay, :hist, :stat)
+            s = svg(ppcheck(y, yrep; type))
+            @test wellformed(s) && !occursin("NaN", s)
+        end
+        @test occursin("T = mean", svg(ppcheck(y, yrep; type=:stat)))
+        @test occursin("T = maximum", svg(ppcheck(y, yrep; type=:stat, stat=maximum)))
+        s = svg(ppcheck(rand(rng, 0:4, 80), rand(rng, 0:4, 30, 80); type=:bars))
+        @test wellformed(s) && occursin(">y_rep<", s)
+        fig = ppcheck(y, yrep; axis=(; xlabel="weight"))
+        @test fig.axes[1].xlabel == "weight" && fig.axes[1].ylabel == "density"
+        @test_throws DimensionMismatch ppcheck(y, randn(rng, 30, 79))
+        @test_throws ArgumentError ppcheck(y, yrep; type=:violin)
+    end
+
+    @testset "extensions" begin
+        rng = Xoshiro(3)
+        @testset "FlexiChains" begin
+            fc = FlexiChain{Symbol}(50, 3, Dict(Parameter(:mu) => randn(rng, 50, 3),
+                                                Parameter(:x) => [randn(rng, 2) for _ in 1:50, _ in 1:3],
+                                                Parameter(:label) => fill("a", 50, 3),
+                                                Extra(:lp) => randn(rng, 50, 3)))
+            d = PBP.todraws(fc)
+            @test sort(first.(d)) == ["mu", "x[1]", "x[2]"]
+            @test all(m -> size(m) == (50, 3), last.(d))
+            @test Dict(d)["x[2]"] == [v[2] for v in fc[Parameter(:x)]]
+            @test wellformed(svg(traceplot(fc; variables=["mu"])))
+        end
+        @testset "MCMCChains" begin
+            vals = randn(rng, 40, 3, 2)
+            mc = Chains(vals, [:a, Symbol("b[1]"), :lp], Dict(:internals => [:lp]))
+            d = PBP.todraws(mc)
+            @test first.(d) == ["a", "b[1]"]
+            @test last(d[2]) == vals[:, 2, :]
+            @test wellformed(svg(intervals(mc)))
+        end
+        @testset "Tables" begin
+            rows = [(; chain=c, draw=i, mu=Float64(i + 100c)) for c in 1:2 for i in 1:5]
+            @test Tables.istable(rows)
+            d = PBP.todraws(rows)
+            @test d == ["mu" => Float64[i + 100c for i in 1:5, c in 1:2]]
+            @test wellformed(svg(densities(rows)))
+            @test_throws ArgumentError PBP.todraws([:not, :a, :table])
         end
     end
 end
