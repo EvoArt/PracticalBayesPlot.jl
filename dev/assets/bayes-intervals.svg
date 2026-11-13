@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="500" height="176" viewBox="0 0 500 176" font-family="Helvetica, Arial, sans-serif" font-size="12">
 <rect width="100%" height="100%" fill="white"/>
-<path d="M75.9 16.4V146.6M188 16.4V146.6M300.1 16.4V146.6M412.2 16.4V146.6" stroke="#000" stroke-opacity="0.1" fill="none"/>
-<clipPath id="pbp17c1"><rect x="54.4" y="16.4" width="429.2" height="130.2"/></clipPath>
-<g clip-path="url(#pbp17c1)">
+<path d="M75.9 16.4V146.6M188 16.4V146.6M300.1 16.4V146.6M412.2 16.4V146.6" fill="none" stroke="#000" stroke-width="1" stroke-opacity="0.1"/>
+<clipPath id="pbp22c1"><rect x="54.4" y="16.4" width="429.2" height="130.2"/></clipPath>
+<g clip-path="url(#pbp22c1)">
 <path d="M378 124.9H453.3M73.9 81.5H146.9M270.9 38.1H464.1" fill="none" stroke="steelblue" stroke-width="1.5"/>
 <path d="M397.1 124.9H428.5M93.8 81.5H124.4M329.5 38.1H407.4" fill="none" stroke="steelblue" stroke-width="5"/>
 <g fill="white" stroke="steelblue" stroke-width="2">
@@ -11,8 +11,8 @@
 <circle cx="371.6" cy="38.1" r="4.5"/>
 </g>
 </g>
-<rect x="54.4" y="16.4" width="429.2" height="130.2" fill="none" stroke="#000"/>
-<path d="M75.9 146.6v4M188 146.6v4M300.1 146.6v4M412.2 146.6v4M54.4 124.9h-4M54.4 81.5h-4M54.4 38.1h-4" stroke="#000"/>
+<rect x="54.4" y="16.4" width="429.2" height="130.2" fill="none" stroke="#000" stroke-width="1"/>
+<path d="M75.9 146.6V150.6M188 146.6V150.6M300.1 146.6V150.6M412.2 146.6V150.6M54.4 124.9H50.4M54.4 81.5H50.4M54.4 38.1H50.4" fill="none" stroke="#000" stroke-width="1"/>
 <g text-anchor="middle">
 <text x="75.9" y="153.6" dy=".71em">−0.5</text>
 <text x="188" y="153.6" dy=".71em">0.0</text>

@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="560" height="300" viewBox="0 0 560 300" font-family="Helvetica, Arial, sans-serif" font-size="12">
 <rect width="100%" height="100%" fill="white"/>
-<path d="M99.2 32V251.2M208.9 32V251.2M318.7 32V251.2M428.4 32V251.2M538.1 32V251.2M74.8 229.3H543.6M74.8 185.4H543.6M74.8 141.6H543.6M74.8 97.8H543.6M74.8 53.9H543.6" stroke="#000" stroke-opacity="0.1" fill="none"/>
-<clipPath id="pbp23c1"><rect x="74.8" y="32" width="468.8" height="219.2"/></clipPath>
-<g clip-path="url(#pbp23c1)">
+<path d="M99.2 32V251.2M208.9 32V251.2M318.7 32V251.2M428.4 32V251.2M538.1 32V251.2M74.8 229.3H543.6M74.8 185.4H543.6M74.8 141.6H543.6M74.8 97.8H543.6M74.8 53.9H543.6" fill="none" stroke="#000" stroke-width="1" stroke-opacity="0.1"/>
+<clipPath id="pbp28c1"><rect x="74.8" y="32" width="468.8" height="219.2"/></clipPath>
+<g clip-path="url(#pbp28c1)">
 <path d="M208.9 32V251.2" fill="none" stroke="gray" stroke-width="1" stroke-dasharray="4.0,2.5"/>
 <path d="M220.8 229.3H328.7M111.9 185.4H327.9M294.5 141.6H474.5M96.1 97.8H168.1M378.3 53.9H522.3" fill="none" stroke="steelblue" stroke-width="1.5"/>
 <path d="M252.7 229.3H296.8M175.8 185.4H264M347.7 141.6H421.2M117.4 97.8H146.8M420.9 53.9H479.7" fill="none" stroke="steelblue" stroke-width="5"/>
@@ -14,8 +14,8 @@
 <circle cx="450.3" cy="53.9" r="4.5"/>
 </g>
 </g>
-<rect x="74.8" y="32" width="468.8" height="219.2" fill="none" stroke="#000"/>
-<path d="M99.2 251.2v4M208.9 251.2v4M318.7 251.2v4M428.4 251.2v4M538.1 251.2v4M74.8 229.3h-4M74.8 185.4h-4M74.8 141.6h-4M74.8 97.8h-4M74.8 53.9h-4" stroke="#000"/>
+<rect x="74.8" y="32" width="468.8" height="219.2" fill="none" stroke="#000" stroke-width="1"/>
+<path d="M99.2 251.2V255.2M208.9 251.2V255.2M318.7 251.2V255.2M428.4 251.2V255.2M538.1 251.2V255.2M74.8 229.3H70.8M74.8 185.4H70.8M74.8 141.6H70.8M74.8 97.8H70.8M74.8 53.9H70.8" fill="none" stroke="#000" stroke-width="1"/>
 <g text-anchor="middle">
 <text x="99.2" y="258.2" dy=".71em">−0.5</text>
 <text x="208.9" y="258.2" dy=".71em">0.0</text>
