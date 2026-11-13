@@ -6,7 +6,8 @@ using PracticalBayesPlot: Figure, Axis, Relative, current_axis,
     rangebars!, rangebars, hlines!, vlines!, text!,
     axislegend, xlims!, ylims!, limits!, colsize!, rowsize!,
     traceplot, densities, intervals, intervals!, ppcheck, ppcheck!,
-    wong_colors, svg, save, preview
+    poly!, poly, heatmap!, heatmap, DataAspect, hidedecorations!, hidespines!,
+    wong_colors, svg, tikz, save, preview
 using Random, Test
 using FlexiChains: FlexiChain, Parameter, Extra
 using MCMCChains: Chains
@@ -196,6 +197,118 @@ Base.display(d::FakeSVGDisplay, ::MIME"image/svg+xml", x) = (push!(d.shown, x); 
         @test wellformed(read(p, String))
         p = save(joinpath(dir, "f.html"), fig)
         @test occursin("<svg", read(p, String))
+        p = save(joinpath(dir, "f.tex"), fig)
+        @test startswith(read(p, String), "\\begin{tikzpicture}")
+        p = save(joinpath(dir, "g.tex"), fig; standalone=true)
+        @test startswith(read(p, String), "\\documentclass")
+    end
+
+    @testset "polygons, heatmaps, aspect, hidden decorations" begin
+        fig = Figure(; size=(400, 300))
+        ax = Axis(fig[1, 1]; aspect=DataAspect())
+        poly!(ax, [(0, 0), (2, 0), (2, 1)]; color=:gray55, strokecolor=:black, strokewidth=1)
+        poly!(ax, [[(0, 0), (1, 0), (0, 1)], [(3, 0), (4, 0), (4, 1)]]; color=(:red, 0.5), label="two")
+        poly!(ax, [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]; color=:transparent, strokewidth=2, linestyle=:dash)
+        text!(ax, 1, 0.5; text="A ∩ B", latex="A \\cap B", markerspace=:data, fontsize=0.25, align=(:center, :center))
+        hidedecorations!(ax)
+        hidespines!(ax)
+        @test !ax.xticksvisible && !ax.ylabelvisible && !ax.xgridvisible && !ax.spinesvisible
+        s = svg(fig)
+        @test wellformed(s)
+        # gray55 is not CSS: stored as hex
+        @test occursin("fill=\"#8c8c8c\"", s)
+        # two polygons in one path
+        @test occursin(r"<path d=\"M[^\"]*Z ?M[^\"]*Z\" fill=\"red\" fill-opacity=\"0.5\"", s)
+        @test occursin("stroke-dasharray", s)
+        # no ticks or labels: only the polygons' paths, no tick path
+        @test !occursin(r"stroke=\"#000\" stroke-opacity=\"0.1\"", s)
+        # data aspect: the clip rect is twice as wide as tall (x 0..4 by y 0..1 plus padding)
+        m = match(r"<clipPath id=\"[^\"]+\"><rect x=\"[0-9.]+\" y=\"[0-9.]+\" width=\"([0-9.]+)\" height=\"([0-9.]+)\"", s)
+        lims = PBP._limits(ax)
+        @test parse(Float64, m.captures[1]) / parse(Float64, m.captures[2]) ≈
+              (lims[2] - lims[1]) / (lims[4] - lims[3]) rtol = 0.02
+        # data-unit font size: 0.25 data units in pixels
+        fsz = parse(Float64, match(r"font-size=\"([0-9.]+)\">A ∩ B<", s).captures[1])
+        @test fsz ≈ 0.25 * parse(Float64, m.captures[1]) / (lims[2] - lims[1]) rtol = 0.01
+        # multi-line text: one text element per line, the block centred on the point
+        text!(ax, 2, 0.5; text="one\ntwo", align=(:center, :center), fontsize=10)
+        s2 = svg(fig)
+        y1 = parse(Float64, match(r"y=\"([0-9.]+)\"[^>]*>one<", s2).captures[1])
+        y2 = parse(Float64, match(r"y=\"([0-9.]+)\"[^>]*>two<", s2).captures[1])
+        @test y2 - y1 ≈ 12 atol = 0.11
+        @test occursin("{one}", tikz(fig)) && occursin("{two}", tikz(fig))
+        @test_throws ArgumentError Axis(fig[1, 2]; aspect=-1)
+        ax.aspect = 2
+        @test ax.aspect == 2.0
+        ax.aspect = nothing
+        @test isnan(ax.aspect)
+
+        hm = heatmap([1.0 2.0; 3.0 NaN]; colormap=:viridis)
+        s = svg(hm)
+        @test wellformed(s)
+        @test count_of(s, r"<rect x=") == 3 + 2      # three finite cells, the clip rect and the frame
+        @test PBP._edges_of([1.0, 2.0, 4.0], 3, "x") == [0.5, 1.5, 3.0, 5.0]
+        @test PBP._edges_of([0.0, 1.0], 1, "x") == [0.0, 1.0]
+        @test_throws DimensionMismatch heatmap!(Axis(Figure()[1, 1]), 1:5, 1:2, rand(2, 2))
+        @test_throws ArgumentError heatmap(rand(2, 2); colormap=:rainbow)
+        @test PBP._cmap(PBP._stops(:grays), 0.5).css == "rgb(128,128,128)"
+        @test PBP._cmap(PBP._stops([:white, :red]), 1.0).css == "rgb(255,0,0)"
+    end
+
+    @testset "colour resolution" begin
+        @test PBP.rgba(:steelblue) == (70 / 255, 130 / 255, 180 / 255, 1.0)
+        @test PBP.rgba((:gray50, 0.5)) == (127 / 255, 127 / 255, 127 / 255, 0.5)   # X11 gray50 is #7F7F7F
+        @test PBP.rgba("#f00") == (1.0, 0.0, 0.0, 1.0)
+        @test PBP.rgba((0.0, 0.5, 1.0))[3] == 1.0
+        @test PBP.rgba(:transparent)[4] == 0.0
+        @test_throws ArgumentError PBP.rgba("notacolour")
+        @test PBP._rgb255("rgb(1,2,3)") == (1, 2, 3)
+    end
+
+    @testset "TikZ" begin
+        fig = Figure(; title="T & t")
+        ax = Axis(fig[1, 1]; xlabel="μ_1 ≤ 2", ylabel="y")
+        lines!(ax, [0.0, 0.5, NaN, 1.0], [0.0, 1.0, 0.5, 0.2]; label="a line", linestyle=:dash)
+        scatter!(ax, [0.2, 0.4], [0.3, 0.5]; marker=:diamond, strokewidth=1)
+        scatter!(ax, [0.2], [0.6]; marker=:rect)
+        scatter!(ax, [0.3], [0.6])
+        band!(ax, [0.0, 1.0], [0.0, 0.1], [0.2, 0.3])
+        barplot!(ax, [0.5], [0.4]; color=(:steelblue, 0.5))
+        rangebars!(ax, [0.3], [0.1], [0.9]; whiskerwidth=4)
+        hlines!(ax, 0.5)
+        poly!(ax, [(0, 0), (1, 0), (0, 1)]; color=:gray82)
+        text!(ax, 0.5, 0.5; text="P(A ∣ B)", latex="P(A \\mid B)")
+        text!(ax, 0.5, 0.2; text="50% #1")
+        axislegend(ax)
+        heatmap!(Axis(fig[1, 2]), rand(2, 2))
+        t = tikz(fig)
+        @test startswith(t, "\\begin{tikzpicture}[x=0.75pt,y=-0.75pt")
+        @test endswith(t, "\\end{tikzpicture}\n")
+        @test count_of(t, r"\\begin\{scope\}") == count_of(t, r"\\end\{scope\}") == 2
+        @test occursin("\\definecolor{pbp1}{RGB}", t)
+        @test occursin("\$P(A \\mid B)\$", t)              # latex form in math mode
+        @test occursin("50\\% \\#1", t)                     # escaped
+        @test occursin("\\ensuremath{\\mu}\\_1 \\ensuremath{\\leq} 2", t)
+        @test occursin("T \\& t", t)
+        @test occursin("dash pattern=on ", t)
+        @test occursin("rotate=90", t)
+        @test occursin("circle[radius=", t) && occursin("rectangle", t)
+        @test !occursin("NaN", t) && !occursin("Inf", t)
+        # every colour used is defined
+        used = Set(m.captures[1] for m in eachmatch(r"(?:fill|draw|text)=(pbp\d+)", t))
+        defined = Set(m.captures[1] for m in eachmatch(r"\\definecolor\{(pbp\d+)\}", t))
+        @test !isempty(used) && used ⊆ defined
+        # balanced braces and brackets
+        @test count(==('{'), t) == count(==('}'), t)
+        @test count(==('['), t) == count(==(']'), t)
+        @test startswith(tikz(fig; standalone=true), "\\documentclass")
+        # compile it, where LaTeX is available
+        if Sys.which("pdflatex") !== nothing
+            dir = mktempdir()
+            save(joinpath(dir, "f.tex"), fig; standalone=true)
+            ok = success(Cmd(`pdflatex -interaction=nonstopmode -halt-on-error f.tex`; dir))
+            @test ok && isfile(joinpath(dir, "f.pdf"))
+        end
     end
 
     @testset "display hook" begin

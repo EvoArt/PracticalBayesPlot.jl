@@ -8,7 +8,9 @@
 A very lightweight, pure Julia plotting package that targets the small set of
 plots typically used in the [Bayesian workflow](https://arxiv.org/abs/2011.01808):
 posterior predictive checks, effect plots, trace plots, residuals and
-interval plots. It has no dependencies and draws figures as SVG.
+interval plots, and the primitives other packages build diagrams from. It has
+no dependencies and draws figures as SVG, or as TikZ pictures whose text LaTeX
+typesets.
 
 It loads in about 40 ms. A first figure, such as a posterior predictive
 check with 50 overlaid densities and a histogram, compiles almost nothing
@@ -188,6 +190,43 @@ PBP.scatter!(ax, est, terms; color = :white, strokecolor = :steelblue, strokewid
 
 Strings as positions become categories, so `terms` labels the y axis.
 
+### Diagrams: polygons, equal aspect, no axes
+
+`poly!` fills polygons, `aspect = DataAspect()` keeps one unit of x as long
+as one unit of y, and `hidedecorations!` and `hidespines!` remove the axis.
+With `markerspace = :data`, text is sized in data units and scales with the
+figure. That is enough for diagrams such as DAGs, Venn diagrams and
+probability trees.
+
+<!-- figure: diagram -->
+```julia
+circle(cx, cy, r) = [(cx + r * cospi(2t / 60), cy + r * sinpi(2t / 60)) for t in 0:59]
+fig = PBP.Figure(; size = (420, 300))
+ax = PBP.Axis(fig[1, 1]; aspect = PBP.DataAspect())
+PBP.poly!(ax, [(-1.0, -0.75), (1.0, -0.75), (1.0, 0.75), (-1.0, 0.75)];
+          color = :gray90, strokecolor = :black, strokewidth = 1.5)
+PBP.poly!(ax, circle(-0.3, 0.0, 0.5); color = (1, 0.5), strokecolor = :black, strokewidth = 1.5)
+PBP.poly!(ax, circle(0.3, 0.0, 0.5); color = (2, 0.5), strokecolor = :black, strokewidth = 1.5)
+PBP.text!(ax, [-0.55, 0.55], [0.0, 0.0]; text = ["A", "B"], latex = ["A", "B"],
+          markerspace = :data, fontsize = 0.18, align = (:center, :center))
+PBP.text!(ax, 0.0, -0.62; text = "A ∩ B", latex = "A \\cap B", markerspace = :data,
+          fontsize = 0.12, align = (:center, :center))
+PBP.hidedecorations!(ax)
+PBP.hidespines!(ax)
+```
+
+![A Venn diagram from polygons](docs/src/assets/diagram.svg)
+
+### Heatmaps
+
+<!-- figure: heatmap -->
+```julia
+v = [exp(-((i - 12)^2 + (j - 8)^2 / 0.5) / 40) for i in 1:24, j in 1:16]
+fig = PBP.heatmap(v; colormap = :viridis, axis = (; title = "heatmap", aspect = PBP.DataAspect()))
+```
+
+![A heatmap](docs/src/assets/heatmap.svg)
+
 ### One-call forms
 
 One-call forms make a figure with a single axis:
@@ -203,9 +242,14 @@ PBP.lines!(PBP.current_axis(), [-2, 2], [0, 100])
 - In a terminal REPL, displaying a `Figure` opens it in the browser.
   `PBP.preview(fig)` does the same from anywhere.
 - `PBP.save("fig.svg", fig)` writes SVG; `PBP.save("fig.html", fig)` writes a
-  page holding the SVG. For PNG or PDF, convert the SVG (for example with
-  `rsvg-convert` or Inkscape).
-- `PBP.svg(fig)` returns the SVG as a string.
+  page holding the SVG.
+- `PBP.save("fig.tex", fig)` writes a TikZ picture to `\input` into a LaTeX
+  document; its text is typeset by LaTeX, in the document's font. Text given
+  a `latex` form (`text!(...; latex = "\\alpha_1")`) is typeset as
+  mathematics. The picture needs only the `tikz` package.
+  `standalone = true` writes a complete document instead, which compiles on
+  its own to PDF.
+- `PBP.svg(fig)` and `PBP.tikz(fig)` return the SVG or TikZ as a string.
 
 ## What the primitives draw
 
@@ -223,7 +267,9 @@ Names below are written without the `PBP.` prefix.
 | `ecdfplot!(ax, data)` | empirical CDF |
 | `rangebars!(ax, pos, low, high; direction)` | intervals, vertical or horizontal |
 | `hlines!(ax, ys)`, `vlines!(ax, xs)` | reference lines across the axis |
-| `text!(ax, x, y; text)` | text at data coordinates |
+| `poly!(ax, points)` | filled polygons (several at once as a vector of point vectors) |
+| `heatmap!(ax, x, y, values; colormap)` | coloured cells (`:viridis`, `:cividis`, `:grays`, `:blues`, `:reds`, or a vector of colours) |
+| `text!(ax, x, y; text)` | text at data coordinates; `markerspace = :data` sizes it in data units, `latex` gives a LaTeX form for TikZ, `\n` breaks lines |
 | `axislegend(ax, title; position)` | legend of the plots given a `label` |
 
 Each has a one-call form without `!` (except the reference lines, text and
@@ -238,12 +284,17 @@ in Makie's order).
 
 Axis attributes (keywords to `Axis`, or set later as `ax.xlabel = "..."`):
 `title`, `xlabel`, `ylabel`, `xticks`, `yticks` (positions, or
-`(positions, labels)`), `limits`, `xgridvisible`, `ygridvisible`. Also
-`xlims!`, `ylims!`, `limits!`. Layout: `Axis(fig[i, j])`, with ranges to
+`(positions, labels)`), `limits`, `aspect` (`DataAspect()` or a width/height
+ratio), and the visibility flags `xgridvisible`, `ygridvisible`,
+`xticksvisible`, `xticklabelsvisible`, `xlabelvisible` (and their `y`
+versions) and `spinesvisible`. Also `xlims!`, `ylims!`, `limits!`,
+`hidedecorations!`, `hidexdecorations!`, `hideydecorations!` and
+`hidespines!`. Layout: `Axis(fig[i, j])`, with ranges to
 span cells (`fig[1:2, 1]`); `colsize!` and `rowsize!` set relative sizes.
 
 `PBP.kde(x, grid)` is the density estimate `density!` uses,
-for code that needs the numbers.
+for code that needs the numbers, and `PBP.rgba(color)` gives any colour as
+`(r, g, b, alpha)`.
 
 ## Gallery
 
@@ -259,5 +310,5 @@ julia --project=examples examples/pbr_plots.jl
 
 ## Not supported
 
-Log axes, colour maps and heatmaps, 3-d plots, and raster output. They are
-outside the plots the package is for.
+Log axes, colour bars, 3-d plots, and raster output. They are outside the
+plots the package is for.

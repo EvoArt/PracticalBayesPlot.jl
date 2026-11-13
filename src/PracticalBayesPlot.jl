@@ -3,7 +3,8 @@
 
 Lightweight plotting for the Bayesian workflow: trace plots, posterior
 densities and intervals, and posterior predictive checks, plus the
-Makie-style primitives they are built from. Draws figures as SVG, has no
+Makie-style primitives they are built from (and that other packages build
+diagrams from). Draws figures as SVG or as TikZ for LaTeX, has no
 dependencies, and loads in milliseconds.
 
 The package exports nothing. The API follows Makie's names (`Figure`, `Axis`,
@@ -24,9 +25,11 @@ module PracticalBayesPlot
         :lines!, :lines, :scatter!, :scatter, :stairs!, :stairs, :band!, :band,
         :barplot!, :barplot, :hist!, :hist, :density!, :density, :ecdfplot!, :ecdfplot,
         :rangebars!, :rangebars, :hlines!, :vlines!, :text!,
+        :poly!, :poly, :heatmap!, :heatmap, :DataAspect,
+        :hidedecorations!, :hidexdecorations!, :hideydecorations!, :hidespines!,
         :axislegend, :xlims!, :ylims!, :limits!, :colsize!, :rowsize!,
         :traceplot, :densities, :intervals, :intervals!, :ppcheck, :ppcheck!, :todraws,
-        :wong_colors, :kde, :svg, :save, :preview))
+        :wong_colors, :rgba, :kde, :svg, :tikz, :save, :preview))
 end
 
 include("colors.jl")
@@ -35,7 +38,9 @@ include("types.jl")
 include("stats.jl")
 include("plots.jl")
 include("bayes.jl")
+include("canvas.jl")
 include("render.jl")
+include("tikz.jl")
 include("io.jl")
 include("precompile.jl")
 

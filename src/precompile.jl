@@ -48,8 +48,27 @@ function _workload()
     rangebars!(ax4, ["b_x", "sigma"], [0.1, 0.2], [0.3, 0.4]; direction=:x)
     scatter!(ax4, [0.2, 0.3], ["b_x", "sigma"])
 
+    # diagram-style axis: equal aspect, no decorations, polygons and data-unit text
+    ax5 = Axis(fig[3, 2]; aspect=DataAspect())
+    hidedecorations!(ax5)
+    hidespines!(ax5)
+    poly!(ax5, [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]; color=(:gray82, 0.5), strokecolor=:black, strokewidth=1)
+    poly!(ax5, [[(0.0, 0.0), (1.0, 0.5), (0.0, 1.0)], [(2.0, 0.0), (3.0, 0.0), (2.5, 1.0)]]; color="#ffffff")
+    poly!(ax5, x, y; color=1, strokewidth=1.5, linestyle=:dash)
+    text!(ax5, 0.5, 0.5; text="A ∩ B", latex="A \\cap B", markerspace=:data, fontsize=0.2,
+          align=(:center, :center))
+    text!(ax5, [0.1, 0.2], [0.3, 0.4]; text=["a", "b"], color=:firebrick)
+    ax6 = Axis(fig[4, 1:2]; aspect=1.5)
+    heatmap!(ax6, reshape(collect(1.0:6.0), 2, 3))
+    heatmap!(ax6, [1, 2], [1, 2, 3], reshape(collect(1.0:6.0), 2, 3); colormap=:blues, colorrange=(0, 10))
+    hidexdecorations!(ax6; grid=false)
+    hideydecorations!(ax6, label=false)
+
     io = IOBuffer()
     show(io, MIME"image/svg+xml"(), fig)
+    tikz(fig)
+    tikz(io, fig; standalone=true)
+    rgba(:steelblue)
     svg(fig)
     show(io, fig)
     svg(lines(x, y; axis=(; xlabel="x")))
@@ -59,6 +78,9 @@ function _workload()
     tmp = tempname()
     rm(save(tmp * ".svg", fig))
     rm(save(tmp * ".html", fig))
+    rm(save(tmp * ".tex", fig))
+    svg(poly([(0, 0), (1, 0), (0, 1)]))
+    svg(heatmap(rand(3, 3)))
 
     # Bayesian workflow plots, from the most common forms of draws (chains
     # arrive as Draws, through the extensions)
@@ -97,11 +119,12 @@ end
 if ccall(:jl_generating_output, Cint, ()) == 1
     for (f, nargs) in ((lines!, 2), (lines!, 1), (stairs!, 2), (stairs!, 1), (scatter!, 2), (scatter!, 1),
                        (band!, 3), (barplot!, 2), (barplot!, 1), (hist!, 1), (density!, 1), (ecdfplot!, 1),
-                       (rangebars!, 3), (hlines!, 1), (vlines!, 1), (text!, 2))
+                       (rangebars!, 3), (hlines!, 1), (vlines!, 1), (text!, 2), (poly!, 2), (poly!, 1),
+                       (heatmap!, 3), (heatmap!, 1))
         precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(f), Axis, ntuple(_ -> Any, nargs)...})
         precompile(Tuple{typeof(f), Axis, ntuple(_ -> Any, nargs)...})
     end
-    for f in (lines, scatter, stairs, band, barplot, hist, density, ecdfplot, rangebars)
+    for f in (lines, scatter, stairs, band, barplot, hist, density, ecdfplot, rangebars, poly, heatmap)
         precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(f), Vararg{Any}})
     end
     for f in (traceplot, densities, intervals)
@@ -119,6 +142,12 @@ if ccall(:jl_generating_output, Cint, ()) == 1
     precompile(Tuple{typeof(svg), Figure})
     precompile(Tuple{typeof(svg), IOBuffer, Figure})
     precompile(Tuple{typeof(save), String, Figure})
+    precompile(Tuple{typeof(tikz), Figure})
+    precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(tikz), Figure})
+    for f in (hidedecorations!, hidexdecorations!, hideydecorations!)
+        precompile(Tuple{typeof(f), Axis})
+        precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(f), Axis})
+    end
     precompile(Tuple{typeof(preview), Figure})
     precompile(Tuple{typeof(display), BrowserDisplay, Figure})
     precompile(Tuple{typeof(Core.kwcall), NamedTuple, typeof(axislegend), Axis})

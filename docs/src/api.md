@@ -37,6 +37,11 @@ xlims!
 ylims!
 limits!
 axislegend
+DataAspect
+hidedecorations!
+hidexdecorations!
+hideydecorations!
+hidespines!
 ```
 
 ## Plotting into an axis
@@ -54,6 +59,8 @@ rangebars!
 hlines!
 vlines!
 text!
+poly!
+heatmap!
 ```
 
 ## One-call forms
@@ -71,12 +78,15 @@ hist
 density
 ecdfplot
 rangebars
+poly
+heatmap
 ```
 
 ## Output
 
 ```@docs
 svg
+tikz
 save
 preview
 ```
@@ -85,5 +95,6 @@ preview
 
 ```@docs
 wong_colors
+rgba
 kde
 ```

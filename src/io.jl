@@ -12,13 +12,15 @@ function Base.show(io::IO, ax::Axis)
 end
 
 """
-    save(path, fig) -> path
+    save(path, fig; standalone=false) -> path
 
-Write `fig` to `path` as SVG (`.svg`) or as an HTML page holding the SVG
-(`.html`). For PNG or PDF, convert the SVG with a tool such as
+Write `fig` to `path` as SVG (`.svg`), as an HTML page holding the SVG
+(`.html`), or as a TikZ picture for LaTeX (`.tex`, see [`tikz`](@ref);
+`standalone = true` makes it a document that compiles on its own). For PNG
+or PDF, compile the `.tex` file or convert the SVG with a tool such as
 `rsvg-convert` or Inkscape.
 """
-function save(path::AbstractString, fig::Figure)
+function save(path::AbstractString, fig::Figure; standalone::Bool=false)
     ext = lowercase(splitext(path)[2])
     if ext == ".svg"
         open(io -> svg(io, fig), path, "w")
@@ -30,8 +32,10 @@ function save(path::AbstractString, fig::Figure)
             svg(io, fig)
             print(io, "</body></html>\n")
         end
+    elseif ext == ".tex"
+        open(io -> tikz(io, fig; standalone), path, "w")
     else
-        throw(ArgumentError("save writes .svg or .html files; got \"$path\""))
+        throw(ArgumentError("save writes .svg, .html or .tex files; got \"$path\""))
     end
     return path
 end

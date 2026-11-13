@@ -70,14 +70,34 @@ struct TextPlot <: PlotObj
     x::Vector{Float64}
     y::Vector{Float64}
     text::Vector{String}
+    latex::Vector{String}      # empty, or one LaTeX form per text ("" = none)
     color::Paint
     fontsize::Float64
+    dataspace::Bool            # fontsize in data units (markerspace = :data)
     halign::Symbol
     valign::Symbol
 end
 
+# polygons, one per run of finite points
+struct PolyPlot <: PlotObj
+    x::Vector{Float64}
+    y::Vector{Float64}
+    color::Paint
+    strokecolor::Paint
+    strokewidth::Float64
+    dash::String
+    label::String
+end
+
+struct HeatmapPlot <: PlotObj
+    xe::Vector{Float64}        # cell edges
+    ye::Vector{Float64}
+    fills::Matrix{Paint}
+end
+
 _label(p::PlotObj) = p.label
 _label(::TextPlot) = ""
+_label(::HeatmapPlot) = ""
 
 # --- input handling -------------------------------------------------------------
 
@@ -404,30 +424,151 @@ function _reflines!(ax::Axis, v::Vector{Float64}, horiz::Bool, c::Paint, lw::Flo
 end
 
 """
-    text!(ax, x, y; text, color=:black, fontsize=12, align=(:left, :bottom))
+    text!(ax, x, y; text, color=:black, fontsize=12, align=(:left, :bottom),
+          markerspace=:pixel, latex=nothing)
 
 Text at data coordinates. `x`, `y` and `text` may be single values or
 vectors of equal length. `align` is (`:left`/`:center`/`:right`,
 `:bottom`/`:center`/`:top`).
+
+- `markerspace = :data` measures `fontsize` in data units (of x), so text
+  scales with the plot, as in Makie; `:pixel` (default) measures it in pixels.
+- `latex`: a LaTeX (math mode) form of each text, without the `\$`s. The
+  [`tikz`](@ref) output typesets it with LaTeX; the SVG output shows `text`.
 """
-function text!(ax::Axis, x, y; text, color=:black, fontsize=12, align=(:left, :bottom))
+function text!(ax::Axis, x, y; text, color=:black, fontsize=12, align=(:left, :bottom),
+               markerspace=:pixel, latex=nothing)
     @nospecialize
     ts = text isa AbstractString ? String[text] : String[string(t) for t in text]
-    return _text!(ax, _vec(x), _vec(y), ts, _paint(color), Float64(fontsize), align[1], align[2])
+    lx = latex === nothing ? String[] :
+         latex isa AbstractString ? String[latex] : String[t === nothing ? "" : string(t) for t in latex]
+    markerspace in (:pixel, :data) || throw(ArgumentError("markerspace must be :pixel or :data; got $(repr(markerspace))"))
+    return _text!(ax, _vec(x), _vec(y), ts, lx, _paint(color), Float64(fontsize), markerspace === :data,
+                  align[1], align[2])
 end
 
-function _text!(ax::Axis, x::Vector{Float64}, y::Vector{Float64}, ts::Vector{String}, c::Paint, fs::Float64,
-                ha::Symbol, va::Symbol)
+function _text!(ax::Axis, x::Vector{Float64}, y::Vector{Float64}, ts::Vector{String}, lx::Vector{String},
+                c::Paint, fs::Float64, data::Bool, ha::Symbol, va::Symbol)
     (length(x) == length(y) == length(ts)) ||
         throw(DimensionMismatch("x, y and text must have the same length"))
+    isempty(lx) || length(lx) == length(ts) ||
+        throw(DimensionMismatch("latex must have one entry per text"))
     ha in (:left, :center, :right) && va in (:bottom, :center, :top) ||
         throw(ArgumentError("align must be (:left|:center|:right, :bottom|:center|:top)"))
-    return _push!(ax, TextPlot(x, y, ts, c, fs, ha, va))
+    return _push!(ax, TextPlot(x, y, ts, lx, c, fs, data, ha, va))
+end
+
+"""
+    poly!(ax, x, y; color, alpha=1, strokecolor=:black, strokewidth=0,
+          linestyle=:solid, label="")
+    poly!(ax, points; kwargs...)
+    poly!(ax, [points1, points2, ...]; kwargs...)
+
+Filled polygons. Give the corners as vectors `x` and `y`, as a vector of
+points (`(x, y)` tuples, 2-vectors or Makie `Point2f`s), or as a vector of
+such vectors for several polygons in one style. Polygons are closed
+automatically; `NaN` in `x` and `y` separates polygons. `color =
+:transparent` with a `strokewidth` draws outlines only.
+"""
+function poly!(ax::Axis, x, y; color=nothing, alpha=1.0, strokecolor=:black, strokewidth=0,
+               linestyle=:solid, label="")
+    @nospecialize
+    sw = Float64(strokewidth)
+    return _poly!(ax, _vec(x), _vec(y), _color!(ax, color, Float64(alpha)), _paint(strokecolor), sw,
+                  _dash(linestyle, sw), _str(label))
+end
+function poly!(ax::Axis, pts; kwargs...)
+    @nospecialize
+    x, y = _polypoints(pts)
+    return poly!(ax, x, y; kwargs...)
+end
+
+# points, or a vector of polygons (each a vector of points), as x and y with
+# NaN between polygons
+function _polypoints(@nospecialize(pts))
+    x = Float64[]
+    y = Float64[]
+    isempty(pts) && return x, y
+    p1 = first(pts)
+    if first(p1) isa Real
+        for p in pts
+            push!(x, Float64(p[1])); push!(y, Float64(p[2]))
+        end
+    else
+        for poly in pts
+            isempty(x) || (push!(x, NaN); push!(y, NaN))
+            for p in poly
+                push!(x, Float64(p[1])); push!(y, Float64(p[2]))
+            end
+        end
+    end
+    return x, y
+end
+
+function _poly!(ax::Axis, x::Vector{Float64}, y::Vector{Float64}, c::Paint, sc::Paint, sw::Float64,
+                dash::String, label::String)
+    _samelen("x and y", x, y)
+    return _push!(ax, PolyPlot(x, y, c, sc, sw, dash, label))
+end
+
+"""
+    heatmap!(ax, x, y, values; colormap=:viridis, colorrange=nothing, alpha=1)
+    heatmap!(ax, values; kwargs...)
+
+A grid of coloured cells, `values[i, j]` at column `x[i]` and row `y[j]`.
+`x` and `y` are cell centres (one per row/column of `values`) or cell edges
+(one more). Without them, cells are centred on 1, 2, .... `colormap` is
+`:viridis`, `:cividis`, `:grays`, `:blues`, `:reds` or a vector of colours;
+`colorrange = (low, high)` fixes the values at its ends (default: the
+extrema of the finite values). `NaN` cells are left empty.
+"""
+function heatmap!(ax::Axis, x, y, values::AbstractMatrix; colormap=:viridis, colorrange=nothing, alpha=1.0)
+    @nospecialize
+    v = Matrix{Float64}(values)
+    cr = colorrange === nothing ? (NaN, NaN) : (Float64(colorrange[1]), Float64(colorrange[2]))
+    return _heatmap!(ax, _vec(x), _vec(y), v, _stops(colormap), cr, Float64(alpha))
+end
+function heatmap!(ax::Axis, values::AbstractMatrix; kwargs...)
+    @nospecialize
+    return heatmap!(ax, 1:size(values, 1), 1:size(values, 2), values; kwargs...)
+end
+
+function _edges_of(c::Vector{Float64}, n::Int, name::String)
+    length(c) == n + 1 && return c
+    length(c) == n || throw(DimensionMismatch("$name must have one entry per cell ($n) or one per edge ($(n + 1)); got $(length(c))"))
+    n == 1 && return [c[1] - 0.5, c[1] + 0.5]
+    e = Vector{Float64}(undef, n + 1)
+    for i in 2:n
+        e[i] = (c[i-1] + c[i]) / 2
+    end
+    e[1] = c[1] - (e[2] - c[1])
+    e[n+1] = c[n] + (c[n] - e[n])
+    return e
+end
+
+function _heatmap!(ax::Axis, x::Vector{Float64}, y::Vector{Float64}, v::Matrix{Float64},
+                   stops::Vector{NTuple{3,Float64}}, cr::Tuple{Float64,Float64}, alpha::Float64)
+    nx, ny = size(v)
+    xe = _edges_of(x, nx, "x")
+    ye = _edges_of(y, ny, "y")
+    lo, hi = cr
+    if isnan(lo) || isnan(hi)
+        fin = filter(isfinite, vec(v))
+        a, b = isempty(fin) ? (0.0, 1.0) : extrema(fin)
+        isnan(lo) && (lo = a)
+        isnan(hi) && (hi = b)
+    end
+    span = hi > lo ? hi - lo : 1.0
+    fills = Matrix{Paint}(undef, nx, ny)
+    for j in 1:ny, i in 1:nx
+        fills[i, j] = paint(_cmap(stops, (v[i, j] - lo) / span), alpha)
+    end
+    return _push!(ax, HeatmapPlot(xe, ye, fills))
 end
 
 # --- one-call forms and current-axis forms --------------------------------------------
 
-for f in (:lines, :scatter, :stairs, :band, :barplot, :hist, :density, :ecdfplot, :rangebars)
+for f in (:lines, :scatter, :stairs, :band, :barplot, :hist, :density, :ecdfplot, :rangebars, :poly, :heatmap)
     fb = Symbol(f, :!)
     @eval begin
         function $f(args...; figure=NamedTuple(), axis=NamedTuple(), kwargs...)
@@ -437,7 +578,7 @@ for f in (:lines, :scatter, :stairs, :band, :barplot, :hist, :density, :ecdfplot
             $fb(ax, args...; kwargs...)
             return fig
         end
-        function $fb(a1::AbstractVector, args...; kwargs...)
+        function $fb(a1::AbstractArray, args...; kwargs...)
             @nospecialize
             return $fb(current_axis(), a1, args...; kwargs...)
         end

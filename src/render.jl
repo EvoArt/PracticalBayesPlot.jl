@@ -1,6 +1,6 @@
-# SVG rendering: grid layout, limits and ticks per axis, then the plots.
+# Rendering: grid layout, limits and ticks per axis, then the plots, drawn on
+# a Canvas (canvas.jl), which writes SVG or TikZ.
 
-const FONT = "Helvetica, Arial, sans-serif"
 const TICK = 4.0       # tick length, px
 const TGAP = 3.0       # tick to tick label
 const LGAP = 5.0       # tick labels to axis label
@@ -8,91 +8,6 @@ const OUTER = 8.0      # figure padding
 const CELLGAP = 12.0   # gap between grid cells
 
 const _IDCOUNTER = Ref(0)
-
-# --- low-level writers ------------------------------------------------------------
-
-# coordinates with one decimal: enough for screen and print, keeps files small
-function _num(io::IO, x::Float64)
-    v = round(Int, clamp(x, -1e6, 1e6) * 10)
-    if v < 0
-        print(io, '-')
-        v = -v
-    end
-    q, r = divrem(v, 10)
-    print(io, q)
-    r == 0 || (print(io, '.'); print(io, r))
-    return nothing
-end
-_num(io::IO, x::Real) = _num(io, Float64(x))
-
-_short(x::Real) = (s = string(round(Float64(x); digits=3)); endswith(s, ".0") ? s[1:end-2] : s)
-
-function _esc(io::IO, s::AbstractString)
-    for c in s
-        c == '&' ? print(io, "&amp;") : c == '<' ? print(io, "&lt;") :
-        c == '>' ? print(io, "&gt;") : c == '"' ? print(io, "&quot;") : print(io, c)
-    end
-end
-
-function _attr(io::IO, name::String, x::Real)
-    print(io, ' ', name, "=\"")
-    _num(io, x)
-    print(io, '"')
-end
-
-function _fill(io::IO, p::Paint)
-    if !isvisible(p)
-        print(io, " fill=\"none\"")
-        return
-    end
-    print(io, " fill=\"", p.css, '"')
-    p.alpha < 1 && print(io, " fill-opacity=\"", _short(p.alpha), '"')
-end
-
-function _stroke(io::IO, p::Paint, lw::Float64, dash::String="")
-    if !isvisible(p) || lw <= 0
-        print(io, " stroke=\"none\"")
-        return
-    end
-    print(io, " stroke=\"", p.css, "\" stroke-width=\"", _short(lw), '"')
-    p.alpha < 1 && print(io, " stroke-opacity=\"", _short(p.alpha), '"')
-    isempty(dash) || print(io, " stroke-dasharray=\"", dash, '"')
-end
-
-# approximate text width for a Helvetica-like font, in px
-function _textw(s::AbstractString, fs::Float64)
-    w = 0.0
-    for c in s
-        w += c in "il.,:;'|!" ? 0.25 :
-             c in " -()[]ftrjI/" ? 0.33 :
-             c in "mwMW" ? 0.85 :
-             isuppercase(c) ? 0.67 :
-             isdigit(c) || c == MINUS ? 0.556 : 0.52
-    end
-    return w * fs
-end
-
-function _text(io::IO, x, y, s::AbstractString; anchor="middle", dy="", size=0.0,
-               bold=false, rotate=false, color::Paint=Paint("#000", 1.0))
-    print(io, "<text")
-    _attr(io, "x", x)
-    _attr(io, "y", y)
-    isempty(anchor) || print(io, " text-anchor=\"", anchor, '"')
-    isempty(dy) || print(io, " dy=\"", dy, '"')
-    size > 0 && print(io, " font-size=\"", _short(size), '"')
-    bold && print(io, " font-weight=\"bold\"")
-    color.css == "#000" && color.alpha == 1 || _fill(io, color)
-    if rotate
-        print(io, " transform=\"rotate(-90 ")
-        _num(io, x)
-        print(io, ' ')
-        _num(io, y)
-        print(io, ")\"")
-    end
-    print(io, '>')
-    _esc(io, s)
-    print(io, "</text>\n")
-end
 
 # --- data to pixel transform -----------------------------------------------------------
 
@@ -134,8 +49,9 @@ function _y!(b::Bounds, v::Vector{Float64})
     b.ylo, b.yhi = _ext!(b.ylo, b.yhi, v)
 end
 
-_bounds!(b::Bounds, p::Union{LinesPlot,ScatterPlot,TextPlot}) = (_x!(b, p.x); _y!(b, p.y))
+_bounds!(b::Bounds, p::Union{LinesPlot,ScatterPlot,TextPlot,PolyPlot}) = (_x!(b, p.x); _y!(b, p.y))
 _bounds!(b::Bounds, p::BandPlot) = (_x!(b, p.x); _y!(b, p.lo); _y!(b, p.hi))
+_bounds!(b::Bounds, p::HeatmapPlot) = (_x!(b, p.xe); _y!(b, p.ye))
 function _bounds!(b::Bounds, p::BarsPlot)
     _x!(b, p.x .- p.width ./ 2)
     _x!(b, p.x .+ p.width ./ 2)
@@ -225,6 +141,11 @@ mutable struct AxLayout
     bottom::Float64
 end
 
+_showxlabel(ax::Axis) = ax.xlabelvisible && !isempty(ax.xlabel)
+_showylabel(ax::Axis) = ax.ylabelvisible && !isempty(ax.ylabel)
+_bare(ax::Axis) = !(ax.xticksvisible || ax.yticksvisible || ax.xticklabelsvisible ||
+                    ax.yticklabelsvisible || _showxlabel(ax) || _showylabel(ax))
+
 function _prepare(ax::Axis, cs, cw, rs, rh, fs::Float64)
     rx0 = cs[first(ax.cols)]
     rx1 = cs[last(ax.cols)] + cw[last(ax.cols)]
@@ -235,11 +156,18 @@ function _prepare(ax::Axis, cs, cw, rs, rh, fs::Float64)
     ytarget = clamp(round(Int, (ry1 - ry0) / 55), 2, 7)
     xt, xl = _ticks(ax.xticks, ax.xcategories, lims[1], lims[2], xtarget)
     yt, yl = _ticks(ax.yticks, ax.ycategories, lims[3], lims[4], ytarget)
-    ytw = isempty(yl) ? 0.0 : maximum(s -> _textw(s, fs), yl)
-    left = TICK + TGAP + ytw + (isempty(ax.ylabel) ? 0.0 : LGAP + 1.2fs) + 2
-    bottom = TICK + TGAP + 1.2fs + (isempty(ax.xlabel) ? 0.0 : LGAP + 1.2fs)
-    top = isempty(ax.title) ? 0.7fs : 2.0fs
-    right = max(0.7fs, isempty(xl) ? 0.0 : _textw(last(xl), fs) / 2)
+    ytw = isempty(yl) || !ax.yticklabelsvisible ? 0.0 : maximum(s -> _textw(s, fs), yl)
+    if _bare(ax)
+        left = right = bottom = 2.0
+        top = isempty(ax.title) ? 2.0 : 2.0fs
+    else
+        left = (ax.yticksvisible ? TICK : 0.0) + (ax.yticklabelsvisible ? TGAP + ytw : 0.0) +
+               (_showylabel(ax) ? LGAP + 1.2fs : 0.0) + 2
+        bottom = (ax.xticksvisible ? TICK : 0.0) + (ax.xticklabelsvisible ? TGAP + 1.2fs : 0.0) +
+                 (_showxlabel(ax) ? LGAP + 1.2fs : 0.0)
+        top = isempty(ax.title) ? 0.7fs : 2.0fs
+        right = max(0.7fs, isempty(xl) || !ax.xticklabelsvisible ? 0.0 : _textw(last(xl), fs) / 2)
+    end
     return AxLayout(ax, rx0, ry0, rx1, ry1, lims, xt, xl, yt, yl, left, right, top, bottom)
 end
 
@@ -274,21 +202,17 @@ end
 The figure as an SVG document.
 """
 svg(fig::Figure) = sprint(svg, fig)
+svg(io::IO, fig::Figure) = _render(Canvas(io, false, fig.fontsize), fig)
 
-function svg(io::IO, fig::Figure)
+function _render(c::Canvas, fig::Figure)
     W, H = fig.size
     fs = fig.fontsize
     id = (_IDCOUNTER[] += 1)
-    print(io, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"", W, "\" height=\"", H,
-          "\" viewBox=\"0 0 ", W, ' ', H, "\" font-family=\"", FONT, "\" font-size=\"", _short(fs), "\">\n")
-    if isvisible(fig.backgroundcolor)
-        print(io, "<rect width=\"100%\" height=\"100%\"")
-        _fill(io, fig.backgroundcolor)
-        print(io, "/>\n")
-    end
+    _begin!(c, W, H)
+    _background!(c, fig.backgroundcolor, W, H)
     top0 = 0.0
     if !isempty(fig.title)
-        _text(io, W / 2, OUTER, fig.title; dy=".9em", size=1.3fs, bold=true)
+        _text!(c, W / 2, OUTER + 0.25fs, fig.title; valign=:top, size=1.3fs, bold=true)
         top0 = 1.9fs
     end
     if !isempty(fig.axes)
@@ -301,172 +225,157 @@ function svg(io::IO, fig::Figure)
         lays = [_prepare(a, cs, cw, rs, rh, fs) for a in fig.axes]
         _align_margins!(lays)
         for (k, L) in enumerate(lays)
-            _draw_axis(io, L, fs, "pbp$(id)c$(k)")
+            _draw_axis(c, L, fs, "pbp$(id)c$(k)")
         end
     end
-    print(io, "</svg>\n")
+    _finish!(c)
     return nothing
 end
 
-function _draw_axis(io::IO, L::AxLayout, fs::Float64, clipid::String)
+const GRID = Paint("#000", 0.1)
+
+function _draw_axis(c::Canvas, L::AxLayout, fs::Float64, clipid::String)
     ax = L.ax
     x0 = L.rx0 + L.left
     y0 = L.ry0 + L.top
     w = L.rx1 - L.right - x0
     h = L.ry1 - L.bottom - y0
     (w > 2 && h > 2) || return
-    t = Tr(x0, y0, w, h, L.lims...)
+    xlo, xhi, ylo, yhi = L.lims
+    # fixed aspect: shrink the plot area and centre it
+    r = ax.aspect == -1 ? (xhi - xlo) / (yhi - ylo) : ax.aspect
+    if r > 0
+        if w / h > r
+            nw = h * r
+            x0 += (w - nw) / 2
+            w = nw
+        else
+            nh = w / r
+            y0 += (h - nh) / 2
+            h = nh
+        end
+    end
+    t = Tr(x0, y0, w, h, xlo, xhi, ylo, yhi)
 
     # grid
     if (ax.xgridvisible && !isempty(L.xt)) || (ax.ygridvisible && !isempty(L.yt))
-        print(io, "<path d=\"")
         if ax.xgridvisible
             for v in L.xt
-                print(io, 'M'); _num(io, _tx(t, v)); print(io, ' '); _num(io, y0)
-                print(io, 'V'); _num(io, y0 + h)
+                _moveto!(c, _tx(t, v), y0); _vlineto!(c, y0 + h)
             end
         end
         if ax.ygridvisible
             for v in L.yt
-                print(io, 'M'); _num(io, x0); print(io, ' '); _num(io, _ty(t, v))
-                print(io, 'H'); _num(io, x0 + w)
+                _moveto!(c, x0, _ty(t, v)); _hlineto!(c, x0 + w)
             end
         end
-        print(io, "\" stroke=\"#000\" stroke-opacity=\"0.1\" fill=\"none\"/>\n")
+        _path!(c, NOPAINT, GRID, 1.0)
     end
 
     # plots, clipped to the plot area
-    print(io, "<clipPath id=\"", clipid, "\"><rect")
-    _attr(io, "x", x0); _attr(io, "y", y0); _attr(io, "width", w); _attr(io, "height", h)
-    print(io, "/></clipPath>\n<g clip-path=\"url(#", clipid, ")\">\n")
+    _clip!(c, x0, y0, w, h, clipid)
     for p in ax.plots
-        _draw(io, p, t)
+        _draw(c, p, t)
     end
-    print(io, "</g>\n")
+    _endclip!(c)
 
     # frame and ticks
-    print(io, "<rect")
-    _attr(io, "x", x0); _attr(io, "y", y0); _attr(io, "width", w); _attr(io, "height", h)
-    print(io, " fill=\"none\" stroke=\"#000\"/>\n")
-    if !isempty(L.xt) || !isempty(L.yt)
-        print(io, "<path d=\"")
-        for v in L.xt
-            print(io, 'M'); _num(io, _tx(t, v)); print(io, ' '); _num(io, y0 + h)
-            print(io, 'v'); _num(io, TICK)
+    ax.spinesvisible && _rect!(c, x0, y0, w, h, NOPAINT, BLACK, 1.0)
+    if (ax.xticksvisible && !isempty(L.xt)) || (ax.yticksvisible && !isempty(L.yt))
+        if ax.xticksvisible
+            for v in L.xt
+                _moveto!(c, _tx(t, v), y0 + h); _vlineto!(c, y0 + h + TICK)
+            end
         end
-        for v in L.yt
-            print(io, 'M'); _num(io, x0); print(io, ' '); _num(io, _ty(t, v))
-            print(io, 'h'); _num(io, -TICK)
+        if ax.yticksvisible
+            for v in L.yt
+                _moveto!(c, x0, _ty(t, v)); _hlineto!(c, x0 - TICK)
+            end
         end
-        print(io, "\" stroke=\"#000\"/>\n")
+        _path!(c, NOPAINT, BLACK, 1.0)
     end
 
     # tick labels
-    if !isempty(L.xt)
-        print(io, "<g text-anchor=\"middle\">\n")
+    xoff = ax.xticksvisible ? TICK : 0.0
+    yoff = ax.yticksvisible ? TICK : 0.0
+    if ax.xticklabelsvisible && !isempty(L.xt)
+        _textgroup!(c, :center)
         for (v, s) in zip(L.xt, L.xl)
-            _text(io, _tx(t, v), y0 + h + TICK + TGAP, s; anchor="", dy=".71em")
+            _text!(c, _tx(t, v), y0 + h + xoff + TGAP, s; halign=:group, valign=:top)
         end
-        print(io, "</g>\n")
+        _endtextgroup!(c)
     end
-    if !isempty(L.yt)
-        print(io, "<g text-anchor=\"end\">\n")
+    if ax.yticklabelsvisible && !isempty(L.yt)
+        _textgroup!(c, :right)
         for (v, s) in zip(L.yt, L.yl)
-            _text(io, x0 - TICK - TGAP, _ty(t, v), s; anchor="", dy=".32em")
+            _text!(c, x0 - yoff - TGAP, _ty(t, v), s; halign=:group, valign=:center)
         end
-        print(io, "</g>\n")
+        _endtextgroup!(c)
     end
 
     # axis labels and title
-    isempty(ax.xlabel) ||
-        _text(io, x0 + w / 2, y0 + h + TICK + TGAP + 1.2fs + LGAP, ax.xlabel; dy=".71em")
-    isempty(ax.ylabel) ||
-        _text(io, L.rx0 + 2, y0 + h / 2, ax.ylabel; dy=".71em", rotate=true)
-    isempty(ax.title) ||
-        _text(io, x0 + w / 2, y0 - 0.55fs, ax.title; size=1.15fs, bold=true)
+    xlab = y0 + h + xoff + (ax.xticklabelsvisible ? TGAP + 1.2fs : 0.0) + LGAP
+    _showxlabel(ax) && _text!(c, x0 + w / 2, xlab, ax.xlabel; valign=:top)
+    _showylabel(ax) && _text!(c, L.rx0 + 2, y0 + h / 2, ax.ylabel; valign=:top, rotate=true)
+    isempty(ax.title) || _text!(c, x0 + w / 2, y0 - 0.55fs, ax.title; size=1.15fs, bold=true)
 
-    _draw_legend(io, ax, t, fs)
+    _draw_legend(c, ax, t, fs)
     return nothing
 end
 
 # --- plot primitives ------------------------------------------------------------------------
 
-function _polyline(io::IO, t::Tr, x::Vector{Float64}, y::Vector{Float64})
-    state = 0   # 0: pen up, 1: just moved, 2: drawing
+# the finite points as polylines (NaN breaks them)
+function _polyline(c::Canvas, t::Tr, x::Vector{Float64}, y::Vector{Float64})
+    up = true
     for i in eachindex(x, y)
         if isfinite(x[i]) && isfinite(y[i])
-            if state == 0
-                print(io, 'M')
-                state = 1
-            elseif state == 1
-                print(io, 'L')
-                state = 2
-            else
-                print(io, ' ')
-            end
-            _num(io, _tx(t, x[i])); print(io, ' '); _num(io, _ty(t, y[i]))
+            px, py = _tx(t, x[i]), _ty(t, y[i])
+            up ? _moveto!(c, px, py) : _lineto!(c, px, py)
+            up = false
         else
-            state = 0
+            up = true
         end
     end
 end
 
-function _draw(io::IO, p::LinesPlot, t::Tr)
+function _draw(c::Canvas, p::LinesPlot, t::Tr)
     isempty(p.x) && return
-    print(io, "<path d=\"")
-    _polyline(io, t, p.x, p.y)
-    print(io, "\" fill=\"none\"")
-    _stroke(io, p.color, p.linewidth, p.dash)
-    print(io, " stroke-linejoin=\"round\" stroke-linecap=\"round\"/>\n")
+    _polyline(c, t, p.x, p.y)
+    _path!(c, NOPAINT, p.color, p.linewidth, p.dash; round=true)
 end
 
-function _marker(io::IO, m::Symbol, cx::Float64, cy::Float64, s::Float64)
+function _marker(c::Canvas, m::Symbol, cx::Float64, cy::Float64, s::Float64)
     r = s / 2
     if m === :circle
-        print(io, "<circle"); _attr(io, "cx", cx); _attr(io, "cy", cy); _attr(io, "r", r)
+        _circle!(c, cx, cy, r)
     elseif m === :rect
-        print(io, "<rect"); _attr(io, "x", cx - r); _attr(io, "y", cy - r)
-        _attr(io, "width", s); _attr(io, "height", s)
+        _rect!(c, cx - r, cy - r, s, s)
+    elseif m === :diamond
+        q = 1.25r
+        _polygon!(c, (cx, cx + q, cx, cx - q), (cy - q, cy, cy + q, cy))
     else
-        print(io, "<path d=\"M")
-        if m === :diamond
-            q = 1.25r
-            _num(io, cx); print(io, ' '); _num(io, cy - q); print(io, 'L')
-            _num(io, cx + q); print(io, ' '); _num(io, cy); print(io, ' ')
-            _num(io, cx); print(io, ' '); _num(io, cy + q); print(io, ' ')
-            _num(io, cx - q); print(io, ' '); _num(io, cy)
-        else
-            sg = m === :utriangle ? 1.0 : -1.0
-            _num(io, cx); print(io, ' '); _num(io, cy - sg * 1.15r); print(io, 'L')
-            _num(io, cx + 1.1r); print(io, ' '); _num(io, cy + sg * 0.75r); print(io, ' ')
-            _num(io, cx - 1.1r); print(io, ' '); _num(io, cy + sg * 0.75r)
-        end
-        print(io, "Z\"")
+        sg = m === :utriangle ? 1.0 : -1.0
+        _polygon!(c, (cx, cx + 1.1r, cx - 1.1r), (cy - sg * 1.15r, cy + sg * 0.75r, cy + sg * 0.75r))
     end
-    print(io, "/>\n")
 end
 
-function _draw(io::IO, p::ScatterPlot, t::Tr)
+function _draw(c::Canvas, p::ScatterPlot, t::Tr)
     isempty(p.x) && return
-    print(io, "<g")
-    _fill(io, p.color)
-    _stroke(io, p.strokecolor, p.strokewidth)
-    print(io, ">\n")
+    _group!(c, p.color, p.strokecolor, p.strokewidth)
     for i in eachindex(p.x, p.y)
         x, y = p.x[i], p.y[i]
         (isfinite(x) && isfinite(y)) || continue
-        _marker(io, p.marker, _tx(t, x), _ty(t, y), p.markersize)
+        _marker(c, p.marker, _tx(t, x), _ty(t, y), p.markersize)
     end
-    print(io, "</g>\n")
+    _endgroup!(c)
 end
 
-function _draw(io::IO, p::BandPlot, t::Tr)
-    n = length(p.x)
+# runs of at least two consecutive indices where `ok`
+function _runs(ok, n::Int)
+    runs = UnitRange{Int}[]
     i = 1
-    print(io, "<path d=\"")
     while i <= n
-        # one polygon per run of finite points
-        ok(k) = isfinite(p.x[k]) && isfinite(p.lo[k]) && isfinite(p.hi[k])
         while i <= n && !ok(i)
             i += 1
         end
@@ -474,129 +383,138 @@ function _draw(io::IO, p::BandPlot, t::Tr)
         while j <= n && ok(j)
             j += 1
         end
-        if j - i >= 2
-            for k in i:j-1
-                print(io, k == i ? 'M' : 'L')
-                _num(io, _tx(t, p.x[k])); print(io, ' '); _num(io, _ty(t, p.hi[k]))
-            end
-            for k in j-1:-1:i
-                print(io, 'L')
-                _num(io, _tx(t, p.x[k])); print(io, ' '); _num(io, _ty(t, p.lo[k]))
-            end
-            print(io, 'Z')
-        end
+        j - i >= 2 && push!(runs, i:j-1)
         i = j
     end
-    print(io, "\"")
-    _fill(io, p.color)
-    print(io, " stroke=\"none\"/>\n")
+    return runs
 end
 
-function _draw(io::IO, p::BarsPlot, t::Tr)
+function _draw(c::Canvas, p::BandPlot, t::Tr)
+    for r in _runs(k -> isfinite(p.x[k]) && isfinite(p.lo[k]) && isfinite(p.hi[k]), length(p.x))
+        for k in r
+            px, py = _tx(t, p.x[k]), _ty(t, p.hi[k])
+            k == first(r) ? _moveto!(c, px, py) : _lineto!(c, px, py)
+        end
+        for k in reverse(r)
+            _lineto!(c, _tx(t, p.x[k]), _ty(t, p.lo[k]))
+        end
+        _closepath!(c)
+    end
+    _path!(c, p.color, NOPAINT, 0.0)
+end
+
+function _draw(c::Canvas, p::PolyPlot, t::Tr)
+    for r in _runs(k -> isfinite(p.x[k]) && isfinite(p.y[k]), length(p.x))
+        for k in r
+            px, py = _tx(t, p.x[k]), _ty(t, p.y[k])
+            k == first(r) ? _moveto!(c, px, py) : _lineto!(c, px, py)
+        end
+        _closepath!(c)
+    end
+    _path!(c, p.color, p.strokecolor, p.strokewidth, p.dash; round=true)
+end
+
+function _draw(c::Canvas, p::BarsPlot, t::Tr)
     isempty(p.x) && return
-    print(io, "<g")
-    _fill(io, p.color)
-    _stroke(io, p.strokecolor, p.strokewidth)
-    print(io, ">\n")
+    _group!(c, p.color, p.strokecolor, p.strokewidth)
     ybase = _ty(t, p.fillto)
     for i in eachindex(p.x)
         (isfinite(p.x[i]) && isfinite(p.h[i])) || continue
         xa = _tx(t, p.x[i] - p.width[i] / 2)
         xb = _tx(t, p.x[i] + p.width[i] / 2)
         yh = _ty(t, p.h[i])
-        print(io, "<rect")
-        _attr(io, "x", min(xa, xb)); _attr(io, "y", clamp(min(yh, ybase), -1e5, 1e5))
-        _attr(io, "width", abs(xb - xa)); _attr(io, "height", min(abs(ybase - yh), 2e5))
-        print(io, "/>\n")
+        _rect!(c, min(xa, xb), clamp(min(yh, ybase), -1e5, 1e5), abs(xb - xa), min(abs(ybase - yh), 2e5))
     end
-    print(io, "</g>\n")
+    _endgroup!(c)
 end
 
-function _draw(io::IO, p::RangeBarsPlot, t::Tr)
+# each cell is stroked in its own colour too, which hides the hairline seams
+# viewers draw between abutting rectangles
+function _draw(c::Canvas, p::HeatmapPlot, t::Tr)
+    nx, ny = size(p.fills)
+    for j in 1:ny, i in 1:nx
+        f = p.fills[i, j]
+        isvisible(f) || continue
+        xa, xb = _tx(t, p.xe[i]), _tx(t, p.xe[i+1])
+        ya, yb = _ty(t, p.ye[j+1]), _ty(t, p.ye[j])
+        _rect!(c, min(xa, xb), min(ya, yb), abs(xb - xa), abs(yb - ya), f, f, 0.5)
+    end
+end
+
+function _draw(c::Canvas, p::RangeBarsPlot, t::Tr)
     isempty(p.pos) && return
-    print(io, "<path d=\"")
     hw = p.whiskerwidth / 2
     for i in eachindex(p.pos)
         (isfinite(p.pos[i]) && isfinite(p.lo[i]) && isfinite(p.hi[i])) || continue
         if p.horizontal
             y = _ty(t, p.pos[i]); a = _tx(t, p.lo[i]); b = _tx(t, p.hi[i])
-            print(io, 'M'); _num(io, a); print(io, ' '); _num(io, y); print(io, 'H'); _num(io, b)
+            _moveto!(c, a, y); _hlineto!(c, b)
             if hw > 0
                 for e in (a, b)
-                    print(io, 'M'); _num(io, e); print(io, ' '); _num(io, y - hw); print(io, 'V'); _num(io, y + hw)
+                    _moveto!(c, e, y - hw); _vlineto!(c, y + hw)
                 end
             end
         else
             x = _tx(t, p.pos[i]); a = _ty(t, p.lo[i]); b = _ty(t, p.hi[i])
-            print(io, 'M'); _num(io, x); print(io, ' '); _num(io, a); print(io, 'V'); _num(io, b)
+            _moveto!(c, x, a); _vlineto!(c, b)
             if hw > 0
                 for e in (a, b)
-                    print(io, 'M'); _num(io, x - hw); print(io, ' '); _num(io, e); print(io, 'H'); _num(io, x + hw)
+                    _moveto!(c, x - hw, e); _hlineto!(c, x + hw)
                 end
             end
         end
     end
-    print(io, "\" fill=\"none\"")
-    _stroke(io, p.color, p.linewidth)
-    print(io, "/>\n")
+    _path!(c, NOPAINT, p.color, p.linewidth)
 end
 
-function _draw(io::IO, p::RefLinesPlot, t::Tr)
+function _draw(c::Canvas, p::RefLinesPlot, t::Tr)
     isempty(p.vals) && return
-    print(io, "<path d=\"")
     for v in p.vals
         isfinite(v) || continue
         if p.horizontal
-            print(io, 'M'); _num(io, t.x0); print(io, ' '); _num(io, _ty(t, v)); print(io, 'H'); _num(io, t.x0 + t.w)
+            _moveto!(c, t.x0, _ty(t, v)); _hlineto!(c, t.x0 + t.w)
         else
-            print(io, 'M'); _num(io, _tx(t, v)); print(io, ' '); _num(io, t.y0); print(io, 'V'); _num(io, t.y0 + t.h)
+            _moveto!(c, _tx(t, v), t.y0); _vlineto!(c, t.y0 + t.h)
         end
     end
-    print(io, "\" fill=\"none\"")
-    _stroke(io, p.color, p.linewidth, p.dash)
-    print(io, "/>\n")
+    _path!(c, NOPAINT, p.color, p.linewidth, p.dash)
 end
 
-function _draw(io::IO, p::TextPlot, t::Tr)
-    anchor = p.halign === :left ? "start" : p.halign === :right ? "end" : "middle"
-    dy = p.valign === :bottom ? "" : p.valign === :top ? ".71em" : ".32em"
+function _draw(c::Canvas, p::TextPlot, t::Tr)
+    va = p.valign === :bottom ? :baseline : p.valign
+    size = p.dataspace ? p.fontsize * t.w / (t.xhi - t.xlo) : p.fontsize
     for i in eachindex(p.x)
         (isfinite(p.x[i]) && isfinite(p.y[i])) || continue
-        _text(io, _tx(t, p.x[i]), _ty(t, p.y[i]), p.text[i]; anchor, dy, size=p.fontsize, color=p.color)
+        _text!(c, _tx(t, p.x[i]), _ty(t, p.y[i]), p.text[i]; halign=p.halign, valign=va, size, color=p.color,
+               latex=isempty(p.latex) ? "" : p.latex[i])
     end
 end
 
 # --- legend ------------------------------------------------------------------------------------
 
-function _glyph(io::IO, p::Union{LinesPlot,RefLinesPlot}, gx, cy, gw, fs)
-    print(io, "<path d=\"M"); _num(io, gx); print(io, ' '); _num(io, cy); print(io, 'H'); _num(io, gx + gw)
-    print(io, "\" fill=\"none\"")
-    _stroke(io, Paint(p.color.css, max(p.color.alpha, 0.6)), max(p.linewidth, 1.5), p.dash)
-    print(io, "/>\n")
+function _glyph(c::Canvas, p::Union{LinesPlot,RefLinesPlot}, gx, cy, gw, fs)
+    _moveto!(c, gx, cy); _hlineto!(c, gx + gw)
+    _path!(c, NOPAINT, Paint(p.color.css, max(p.color.alpha, 0.6)), max(p.linewidth, 1.5), p.dash)
 end
-function _glyph(io::IO, p::ScatterPlot, gx, cy, gw, fs)
-    print(io, "<g")
-    _fill(io, p.color)
-    _stroke(io, p.strokecolor, p.strokewidth)
-    print(io, '>')
-    _marker(io, p.marker, gx + gw / 2, cy, min(p.markersize, fs))
-    print(io, "</g>\n")
+function _glyph(c::Canvas, p::ScatterPlot, gx, cy, gw, fs)
+    _group!(c, p.color, p.strokecolor, p.strokewidth)
+    _marker(c, p.marker, gx + gw / 2, cy, min(p.markersize, fs))
+    _endgroup!(c)
 end
-function _glyph(io::IO, p::Union{BarsPlot,BandPlot}, gx, cy, gw, fs)
-    print(io, "<rect")
-    _attr(io, "x", gx + 2); _attr(io, "y", cy - 0.35fs); _attr(io, "width", gw - 4); _attr(io, "height", 0.7fs)
-    _fill(io, p.color)
-    p isa BarsPlot ? _stroke(io, p.strokecolor, p.strokewidth) : print(io, " stroke=\"none\"")
-    print(io, "/>\n")
+function _glyph(c::Canvas, p::Union{BarsPlot,BandPlot,PolyPlot}, gx, cy, gw, fs)
+    stroke, lw = p isa BandPlot ? (NOPAINT, 0.0) : (p.strokecolor, p.strokewidth)
+    _rect!(c, gx + 2, cy - 0.35fs, gw - 4, 0.7fs, p.color, stroke, lw)
 end
-function _glyph(io::IO, p::RangeBarsPlot, gx, cy, gw, fs)
-    print(io, "<path d=\"M"); _num(io, gx + gw / 2); print(io, ' '); _num(io, cy - 0.5fs)
-    print(io, 'V'); _num(io, cy + 0.5fs); print(io, "\" fill=\"none\"")
-    _stroke(io, p.color, p.linewidth)
-    print(io, "/>\n")
+function _glyph(c::Canvas, p::RangeBarsPlot, gx, cy, gw, fs)
+    _moveto!(c, gx + gw / 2, cy - 0.5fs); _vlineto!(c, cy + 0.5fs)
+    _path!(c, NOPAINT, p.color, p.linewidth)
 end
+_glyph(c::Canvas, p::Union{TextPlot,HeatmapPlot}, gx, cy, gw, fs) = nothing
 
-function _draw_legend(io::IO, ax::Axis, t::Tr, fs::Float64)
+const LEGENDFILL = Paint("#fff", 0.85)
+const LEGENDSTROKE = Paint("#000", 0.2)
+
+function _draw_legend(c::Canvas, ax::Axis, t::Tr, fs::Float64)
     ax.legend === nothing && return
     title, pos = ax.legend
     entries = PlotObj[]
@@ -618,19 +536,16 @@ function _draw_legend(io::IO, ax::Axis, t::Tr, fs::Float64)
     inset = 8.0
     bx = s[1] == 'l' ? t.x0 + inset : s[1] == 'r' ? t.x0 + t.w - inset - bw : t.x0 + (t.w - bw) / 2
     by = s[2] == 't' ? t.y0 + inset : s[2] == 'b' ? t.y0 + t.h - inset - bh : t.y0 + (t.h - bh) / 2
-    print(io, "<g>\n<rect")
-    _attr(io, "x", bx); _attr(io, "y", by); _attr(io, "width", bw); _attr(io, "height", bh)
-    print(io, " fill=\"#fff\" fill-opacity=\"0.85\" stroke=\"#000\" stroke-opacity=\"0.2\"/>\n")
+    _rect!(c, bx, by, bw, bh, LEGENDFILL, LEGENDSTROKE, 1.0)
     row = 0
     cy(r) = by + pad / 2 + rowh * (r - 0.5)
     if !isempty(title)
         row += 1
-        _text(io, bx + bw / 2, cy(row), title; dy=".32em", bold=true)
+        _text!(c, bx + bw / 2, cy(row), title; valign=:center, bold=true)
     end
     for p in entries
         row += 1
-        _glyph(io, p, bx + pad, cy(row), gw, fs)
-        _text(io, bx + pad + gw + 5, cy(row), _label(p); anchor="", dy=".32em")
+        _glyph(c, p, bx + pad, cy(row), gw, fs)
+        _text!(c, bx + pad + gw + 5, cy(row), _label(p); halign=:left, valign=:center)
     end
-    print(io, "</g>\n")
 end

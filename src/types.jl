@@ -3,8 +3,19 @@
 abstract type PlotObj end
 
 """
+    DataAspect()
+
+For `Axis(...; aspect = DataAspect())`: one unit of x is as long on the page
+as one unit of y, so circles stay round.
+"""
+struct DataAspect end
+
+"""
     Axis(fig[i, j]; title="", xlabel="", ylabel="", xticks=nothing, yticks=nothing,
-         limits=nothing, xgridvisible=true, ygridvisible=true)
+         limits=nothing, aspect=nothing, xgridvisible=true, ygridvisible=true,
+         xticksvisible=true, yticksvisible=true, xticklabelsvisible=true,
+         yticklabelsvisible=true, xlabelvisible=true, ylabelvisible=true,
+         spinesvisible=true)
 
 A 2-d axis placed in cell `(i, j)` of a [`Figure`](@ref); `i` and `j` may be
 ranges to span cells. Attributes can be changed afterwards, e.g.
@@ -14,6 +25,11 @@ ranges to span cells. Attributes can be changed afterwards, e.g.
   tuple `(positions, labels)`.
 - `limits`: `(xlow, xhigh, ylow, yhigh)` or `((xlow, xhigh), (ylow, yhigh))`;
   any entry may be `nothing` to keep it automatic. See also [`xlims!`](@ref).
+- `aspect`: `nothing` (fill the cell), [`DataAspect`](@ref)`()` (equal
+  scales on both axes), or a number, the plot area's width over its height.
+  The plot area shrinks to fit and is centred in its cell.
+- The `*visible` flags show or hide each part of the axis; see also
+  [`hidedecorations!`](@ref) and [`hidespines!`](@ref).
 """
 mutable struct Axis
     rows::UnitRange{Int}
@@ -31,7 +47,23 @@ mutable struct Axis
     xcategories::Vector{String}
     ycategories::Vector{String}
     cycle::Int
+    aspect::Float64                    # NaN: free; -1: data aspect; > 0: width / height
+    xticksvisible::Bool
+    yticksvisible::Bool
+    xticklabelsvisible::Bool
+    yticklabelsvisible::Bool
+    xlabelvisible::Bool
+    ylabelvisible::Bool
+    spinesvisible::Bool
 end
+
+_parse_aspect(::Nothing) = NaN
+_parse_aspect(::DataAspect) = -1.0
+function _parse_aspect(a::Real)
+    (isfinite(a) && a > 0) || throw(ArgumentError("aspect must be positive; got $a"))
+    return Float64(a)
+end
+_parse_aspect(a) = throw(ArgumentError("aspect must be nothing, DataAspect() or a positive number; got $(repr(a))"))
 
 _lim(v) = v === nothing ? NaN : Float64(v)
 _parse_limits(::Nothing) = (NaN, NaN, NaN, NaN)
@@ -46,6 +78,8 @@ _parse_limits(l) = throw(ArgumentError("limits must be (xlow, xhigh, ylow, yhigh
 function Base.setproperty!(ax::Axis, name::Symbol, v)
     if name === :limits
         return setfield!(ax, :limits, _parse_limits(v))
+    elseif name === :aspect
+        return setfield!(ax, :aspect, _parse_aspect(v))
     elseif name in (:title, :xlabel, :ylabel)
         return setfield!(ax, name, string(v))
     end
@@ -93,15 +127,66 @@ Base.getindex(f::Figure, i, j) = GridPos(f, _cells(i), _cells(j))
 const CURRENT = Ref{Union{Nothing,Axis}}(nothing)
 
 function Axis(gp::GridPos; title="", xlabel="", ylabel="", xticks=nothing, yticks=nothing,
-              limits=nothing, xgridvisible::Bool=true, ygridvisible::Bool=true)
+              limits=nothing, aspect=nothing, xgridvisible::Bool=true, ygridvisible::Bool=true,
+              xticksvisible::Bool=true, yticksvisible::Bool=true, xticklabelsvisible::Bool=true,
+              yticklabelsvisible::Bool=true, xlabelvisible::Bool=true, ylabelvisible::Bool=true,
+              spinesvisible::Bool=true)
     @nospecialize
     ax = Axis(gp.rows, gp.cols, string(title), string(xlabel), string(ylabel), xticks, yticks,
               _parse_limits(limits), xgridvisible, ygridvisible, PlotObj[], nothing,
-              String[], String[], 0)
+              String[], String[], 0, _parse_aspect(aspect), xticksvisible, yticksvisible,
+              xticklabelsvisible, yticklabelsvisible, xlabelvisible, ylabelvisible, spinesvisible)
     push!(gp.fig.axes, ax)
     CURRENT[] = ax
     return ax
 end
+
+"""
+    hidedecorations!(ax; label=true, ticklabels=true, ticks=true, grid=true)
+
+Hide the axis labels, tick labels, ticks and grid lines of `ax` (those
+whose keyword is `true`), on both axes. The margins they took are freed.
+See also [`hidexdecorations!`](@ref), [`hideydecorations!`](@ref) and
+[`hidespines!`](@ref).
+"""
+function hidedecorations!(ax::Axis; label::Bool=true, ticklabels::Bool=true, ticks::Bool=true, grid::Bool=true)
+    hidexdecorations!(ax; label, ticklabels, ticks, grid)
+    hideydecorations!(ax; label, ticklabels, ticks, grid)
+    return ax
+end
+
+"""
+    hidexdecorations!(ax; label=true, ticklabels=true, ticks=true, grid=true)
+
+[`hidedecorations!`](@ref) for the x axis only.
+"""
+function hidexdecorations!(ax::Axis; label::Bool=true, ticklabels::Bool=true, ticks::Bool=true, grid::Bool=true)
+    label && (ax.xlabelvisible = false)
+    ticklabels && (ax.xticklabelsvisible = false)
+    ticks && (ax.xticksvisible = false)
+    grid && (ax.xgridvisible = false)
+    return ax
+end
+
+"""
+    hideydecorations!(ax; label=true, ticklabels=true, ticks=true, grid=true)
+
+[`hidedecorations!`](@ref) for the y axis only.
+"""
+function hideydecorations!(ax::Axis; label::Bool=true, ticklabels::Bool=true, ticks::Bool=true, grid::Bool=true)
+    label && (ax.ylabelvisible = false)
+    ticklabels && (ax.yticklabelsvisible = false)
+    ticks && (ax.yticksvisible = false)
+    grid && (ax.ygridvisible = false)
+    return ax
+end
+
+"""
+    hidespines!(ax)
+
+Hide the frame around the plot area of `ax`.
+"""
+hidespines!(ax::Axis) = (ax.spinesvisible = false; ax)
 
 """
     current_axis()
