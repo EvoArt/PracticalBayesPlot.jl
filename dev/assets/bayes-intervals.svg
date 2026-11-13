@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="500" height="176" viewBox="0 0 500 176" font-family="Helvetica, Arial, sans-serif" font-size="12">
 <rect width="100%" height="100%" fill="white"/>
 <path d="M75.9 16.4V146.6M188 16.4V146.6M300.1 16.4V146.6M412.2 16.4V146.6" fill="none" stroke="#000" stroke-width="1" stroke-opacity="0.1"/>
-<clipPath id="pbp22c1"><rect x="54.4" y="16.4" width="429.2" height="130.2"/></clipPath>
-<g clip-path="url(#pbp22c1)">
+<clipPath id="pbp24c1"><rect x="54.4" y="16.4" width="429.2" height="130.2"/></clipPath>
+<g clip-path="url(#pbp24c1)">
 <path d="M378 124.9H453.3M73.9 81.5H146.9M270.9 38.1H464.1" fill="none" stroke="steelblue" stroke-width="1.5"/>
 <path d="M397.1 124.9H428.5M93.8 81.5H124.4M329.5 38.1H407.4" fill="none" stroke="steelblue" stroke-width="5"/>
 <g fill="white" stroke="steelblue" stroke-width="2">
