@@ -28,7 +28,7 @@ tikz(fig::Figure; standalone::Bool=false) = sprint(io -> tikz(io, fig; standalon
 
 function tikz(io::IO, fig::Figure; standalone::Bool=false)
     standalone && print(io, STANDALONE_PREAMBLE, "\\begin{document}\n")
-    _render(Canvas(io, true, fig.fontsize), fig)
+    _render(Canvas(io, :tikz, fig.fontsize), fig)
     standalone && print(io, "\\end{document}\n")
     return nothing
 end

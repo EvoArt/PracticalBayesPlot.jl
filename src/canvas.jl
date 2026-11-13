@@ -1,8 +1,9 @@
 # The drawing surface. The renderer (render.jl) lays out the figure in pixel
 # coordinates (origin top left, y down) and draws through the functions in
-# this file, which write SVG or, with `tikz = true`, TikZ. A TikZ picture uses
-# `x = 0.75pt, y = -0.75pt`, so it takes the same coordinates and comes out
-# the size of the SVG at 96 px per inch.
+# this file, which write SVG, TikZ (`tikz = true`) or CeTZ for Typst
+# (`cetz = true`, cetz.jl). A TikZ picture uses `x = 0.75pt, y = -0.75pt`, so
+# it takes the same coordinates and comes out the size of the SVG at 96 px
+# per inch; CeTZ gets (x, -y) on a canvas of length 0.75pt.
 #
 # One concrete type with a flag, rather than a type per backend, keeps the
 # renderer compiled once.
@@ -10,7 +11,8 @@
 mutable struct Canvas
     io::IO
     tikz::Bool
-    body::IOBuffer                 # TikZ: the picture, written after the colour definitions
+    cetz::Bool
+    body::IOBuffer                 # TikZ, CeTZ: the picture, written after the preamble
     d::IOBuffer                    # path data being built
     pathstate::Int                 # 0: no current point, 1: just moved, 2: drawing
     cx::Float64                    # current point
@@ -21,13 +23,19 @@ mutable struct Canvas
     gstroke::Paint
     glw::Float64
     tanchor::Symbol                # halign of the open text group
+    sub::Vector{Vector{NTuple{2,Float64}}}   # CeTZ: subpaths being built
+    subclosed::Vector{Bool}
+    clips::Vector{NTuple{4,Float64}}         # CeTZ: clip rectangles (x0, y0, x1, y1), innermost last
 end
 
-Canvas(io::IO, tikz::Bool, fs::Float64) =
-    Canvas(io, tikz, IOBuffer(), IOBuffer(), 0, 0.0, 0.0, Dict{NTuple{3,Int},String}(), fs,
-           NOPAINT, NOPAINT, 0.0, :center)
+function Canvas(io::IO, mode::Symbol, fs::Float64)
+    mode in (:svg, :tikz, :cetz) || throw(ArgumentError("unknown output $mode"))
+    return Canvas(io, mode === :tikz, mode === :cetz, IOBuffer(), IOBuffer(), 0, 0.0, 0.0,
+                  Dict{NTuple{3,Int},String}(), fs, NOPAINT, NOPAINT, 0.0, :center,
+                  Vector{NTuple{2,Float64}}[], Bool[], NTuple{4,Float64}[])
+end
 
-_out(c::Canvas) = c.tikz ? c.body : c.io
+_out(c::Canvas) = c.tikz || c.cetz ? c.body : c.io
 
 # --- numbers and text -----------------------------------------------------------------
 
@@ -99,6 +107,7 @@ end
 const FONT = "Helvetica, Arial, sans-serif"
 
 function _begin!(c::Canvas, W::Int, H::Int)
+    c.cetz && return _cz_begin!(c, W, H)
     if c.tikz
         b = c.body
         print(b, "\\useasboundingbox (0,0) rectangle (", W, ',', H, ");\n")
@@ -109,6 +118,7 @@ function _begin!(c::Canvas, W::Int, H::Int)
 end
 
 function _finish!(c::Canvas)
+    c.cetz && return _cz_finish!(c)
     if c.tikz
         io = c.io
         print(io, "\\begin{tikzpicture}[x=0.75pt,y=-0.75pt,every node/.style={inner sep=0pt,outer sep=0pt},font=")
@@ -127,6 +137,7 @@ end
 
 function _background!(c::Canvas, p::Paint, W::Int, H::Int)
     isvisible(p) || return
+    c.cetz && return _cz_rect!(c, 0.0, 0.0, Float64(W), Float64(H), p, NOPAINT, 0.0)
     if c.tikz
         print(c.body, "\\path[")
         _tzfill(c, p)
@@ -181,6 +192,11 @@ end
 # --- paths ------------------------------------------------------------------------------------
 
 function _moveto!(c::Canvas, x::Float64, y::Float64)
+    if c.cetz
+        push!(c.sub, [(x, y)]); push!(c.subclosed, false)
+        c.cx, c.cy = x, y
+        return
+    end
     d = c.d
     if c.tikz
         position(d) > 0 && print(d, ' ')
@@ -193,6 +209,11 @@ function _moveto!(c::Canvas, x::Float64, y::Float64)
 end
 
 function _lineto!(c::Canvas, x::Float64, y::Float64)
+    if c.cetz
+        push!(c.sub[end], (x, y))
+        c.cx, c.cy = x, y
+        return
+    end
     d = c.d
     if c.tikz
         print(d, " -- ("); _num(d, x); print(d, ','); _num(d, y); print(d, ')')
@@ -205,7 +226,7 @@ function _lineto!(c::Canvas, x::Float64, y::Float64)
 end
 
 function _hlineto!(c::Canvas, x::Float64)
-    if c.tikz
+    if c.tikz || c.cetz
         _lineto!(c, x, c.cy)
     else
         print(c.d, 'H'); _num(c.d, x)
@@ -215,7 +236,7 @@ function _hlineto!(c::Canvas, x::Float64)
 end
 
 function _vlineto!(c::Canvas, y::Float64)
-    if c.tikz
+    if c.tikz || c.cetz
         _lineto!(c, c.cx, y)
     else
         print(c.d, 'V'); _num(c.d, y)
@@ -225,12 +246,14 @@ function _vlineto!(c::Canvas, y::Float64)
 end
 
 function _closepath!(c::Canvas)
+    c.cetz && (c.subclosed[end] = true; return)
     print(c.d, c.tikz ? " -- cycle" : "Z")
     c.pathstate = 0
 end
 
 # draw the path built since the last one
 function _path!(c::Canvas, fill::Paint, stroke::Paint, lw::Float64, dash::String=""; round::Bool=false)
+    c.cetz && return _cz_path!(c, fill, stroke, lw, dash, round)
     data = take!(c.d)
     c.pathstate = 0
     if c.tikz
@@ -254,7 +277,7 @@ end
 # --- shapes; without a style they take the open group's ---------------------------------------
 
 function _group!(c::Canvas, fill::Paint, stroke::Paint, lw::Float64; crisp::Bool=false)
-    if c.tikz
+    if c.tikz || c.cetz
         c.gfill, c.gstroke, c.glw = fill, stroke, lw
     else
         print(c.io, "<g")
@@ -266,7 +289,7 @@ function _group!(c::Canvas, fill::Paint, stroke::Paint, lw::Float64; crisp::Bool
 end
 
 function _endgroup!(c::Canvas)
-    if c.tikz
+    if c.tikz || c.cetz
         c.gfill, c.gstroke, c.glw = NOPAINT, NOPAINT, 0.0
     else
         print(c.io, "</g>\n")
@@ -274,6 +297,7 @@ function _endgroup!(c::Canvas)
 end
 
 function _rect!(c::Canvas, x::Float64, y::Float64, w::Float64, h::Float64)
+    c.cetz && return _cz_rect!(c, x, y, w, h, c.gfill, c.gstroke, c.glw)
     if c.tikz
         _tzstyle(c, c.gfill, c.gstroke, c.glw) || return
         _tzrect(c, x, y, w, h)
@@ -285,6 +309,7 @@ function _rect!(c::Canvas, x::Float64, y::Float64, w::Float64, h::Float64)
 end
 
 function _rect!(c::Canvas, x::Float64, y::Float64, w::Float64, h::Float64, fill::Paint, stroke::Paint, lw::Float64)
+    c.cetz && return _cz_rect!(c, x, y, w, h, fill, stroke, lw)
     if c.tikz
         _tzstyle(c, fill, stroke, lw) || return
         _tzrect(c, x, y, w, h)
@@ -304,6 +329,7 @@ function _tzrect(c::Canvas, x::Float64, y::Float64, w::Float64, h::Float64)
 end
 
 function _circle!(c::Canvas, x::Float64, y::Float64, r::Float64)
+    c.cetz && return _cz_circle!(c, x, y, r)
     if c.tikz
         _tzstyle(c, c.gfill, c.gstroke, c.glw) || return
         b = c.body
@@ -317,6 +343,7 @@ end
 
 # a closed polygon in the open group's style
 function _polygon!(c::Canvas, x::NTuple{N,Float64}, y::NTuple{N,Float64}) where {N}
+    c.cetz && return _cz_marker!(c, collect(zip(x, y)))
     if c.tikz
         _tzstyle(c, c.gfill, c.gstroke, c.glw) || return
         b = c.body
@@ -339,6 +366,7 @@ end
 # --- clipping ---------------------------------------------------------------------------------
 
 function _clip!(c::Canvas, x::Float64, y::Float64, w::Float64, h::Float64, id::String)
+    c.cetz && return push!(c.clips, (x, y, x + w, y + h))
     if c.tikz
         print(c.body, "\\begin{scope}\n\\clip")
         _tzrect(c, x, y, w, h)
@@ -350,18 +378,18 @@ function _clip!(c::Canvas, x::Float64, y::Float64, w::Float64, h::Float64, id::S
     end
 end
 
-_endclip!(c::Canvas) = print(_out(c), c.tikz ? "\\end{scope}\n" : "</g>\n")
+_endclip!(c::Canvas) = c.cetz ? (pop!(c.clips); nothing) : print(_out(c), c.tikz ? "\\end{scope}\n" : "</g>\n")
 
 # --- text -------------------------------------------------------------------------------------
 
 # a group of texts sharing a horizontal alignment
 function _textgroup!(c::Canvas, halign::Symbol)
     c.tanchor = halign
-    c.tikz || print(c.io, "<g text-anchor=\"", _svganchor(halign), "\">\n")
+    c.tikz || c.cetz || print(c.io, "<g text-anchor=\"", _svganchor(halign), "\">\n")
 end
 function _endtextgroup!(c::Canvas)
     c.tanchor = :center
-    c.tikz || print(c.io, "</g>\n")
+    c.tikz || c.cetz || print(c.io, "</g>\n")
 end
 
 _isblack(p::Paint) = p.alpha == 1 && (p.css == "#000" || _rgb255(p.css) == (0, 0, 0))
@@ -390,6 +418,7 @@ function _text!(c::Canvas, x::Float64, y::Float64, s::AbstractString; halign::Sy
         end
         return
     end
+    c.cetz && return _cz_text(c, x, y, s, halign === :group ? c.tanchor : halign, valign, size, bold, rotate, color)
     c.tikz && return _tztext(c, x, y, s, halign === :group ? c.tanchor : halign, valign, size, bold, rotate, color, latex)
     io = c.io
     print(io, "<text")

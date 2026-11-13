@@ -1,7 +1,7 @@
 name = "PracticalBayesPlot"
 uuid = "abd9f751-687e-4400-a054-1391536a3b77"
 authors = ["Arthur Newbury <arn203@exeter.ac.uk>"]
-version = "0.1.1"
+version = "0.1.2"
 
 [weakdeps]
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"

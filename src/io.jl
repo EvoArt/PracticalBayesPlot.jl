@@ -15,8 +15,9 @@ end
     save(path, fig; standalone=false) -> path
 
 Write `fig` to `path` as SVG (`.svg`), as an HTML page holding the SVG
-(`.html`), or as a TikZ picture for LaTeX (`.tex`, see [`tikz`](@ref);
-`standalone = true` makes it a document that compiles on its own). For PNG
+(`.html`), as a TikZ picture for LaTeX (`.tex`, see [`tikz`](@ref)), or as
+a CeTZ drawing for Typst (`.typ`, see [`cetz`](@ref)). `standalone = true`
+makes a `.tex` or `.typ` file a document that compiles on its own. For PNG
 or PDF, compile the `.tex` file or convert the SVG with a tool such as
 `rsvg-convert` or Inkscape.
 """
@@ -34,8 +35,10 @@ function save(path::AbstractString, fig::Figure; standalone::Bool=false)
         end
     elseif ext == ".tex"
         open(io -> tikz(io, fig; standalone), path, "w")
+    elseif ext == ".typ"
+        open(io -> cetz(io, fig; standalone), path, "w")
     else
-        throw(ArgumentError("save writes .svg, .html or .tex files; got \"$path\""))
+        throw(ArgumentError("save writes .svg, .html, .tex or .typ files; got \"$path\""))
     end
     return path
 end

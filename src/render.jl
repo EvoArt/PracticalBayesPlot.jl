@@ -202,7 +202,7 @@ end
 The figure as an SVG document.
 """
 svg(fig::Figure) = sprint(svg, fig)
-svg(io::IO, fig::Figure) = _render(Canvas(io, false, fig.fontsize), fig)
+svg(io::IO, fig::Figure) = _render(Canvas(io, :svg, fig.fontsize), fig)
 
 function _render(c::Canvas, fig::Figure)
     W, H = fig.size

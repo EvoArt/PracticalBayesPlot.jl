@@ -7,7 +7,7 @@ using PracticalBayesPlot: Figure, Axis, Relative, current_axis,
     axislegend, xlims!, ylims!, limits!, colsize!, rowsize!,
     traceplot, densities, intervals, intervals!, ppcheck, ppcheck!,
     poly!, poly, heatmap!, heatmap, DataAspect, hidedecorations!, hidespines!,
-    wong_colors, svg, tikz, save, preview
+    wong_colors, svg, tikz, cetz, save, preview
 using Random, Test
 using FlexiChains: FlexiChain, Parameter, Extra
 using MCMCChains: Chains
@@ -308,6 +308,45 @@ Base.display(d::FakeSVGDisplay, ::MIME"image/svg+xml", x) = (push!(d.shown, x); 
             save(joinpath(dir, "f.tex"), fig; standalone=true)
             ok = success(Cmd(`pdflatex -interaction=nonstopmode -halt-on-error f.tex`; dir))
             @test ok && isfile(joinpath(dir, "f.pdf"))
+        end
+    end
+
+    @testset "CeTZ" begin
+        fig = Figure(; title=raw"T \"q\" \ #x")
+        ax = Axis(fig[1, 1]; xlabel="μ ≤ 2", ylabel="y")
+        lines!(ax, [-1.0, 0.5, NaN, 1.0], [0.0, 1.0, 0.5, 0.2]; label="a line", linestyle=:dash)
+        scatter!(ax, [0.2, 0.4, 5.0], [0.3, 0.5, 0.5]; marker=:diamond, strokewidth=1)
+        scatter!(ax, [0.3], [0.6])
+        band!(ax, [0.0, 1.0], [0.0, 0.1], [0.2, 0.3])
+        barplot!(ax, [0.5], [0.4]; color=(:steelblue, 0.5))
+        poly!(ax, [(0, 0), (3, 0), (0, 1)]; color=:gray82)
+        text!(ax, 0.5, 0.5; text="P(A ∣ B)", latex="P(A \\mid B)")
+        text!(ax, 9.0, 0.5; text="outside")
+        xlims!(ax, 0, 1)
+        axislegend(ax)
+        heatmap!(Axis(fig[1, 2]), rand(2, 2))
+        t = cetz(fig)
+        @test startswith(t, "#import \"@preview/cetz:")
+        @test occursin("#cetz.canvas(length: 0.75pt, {", t) && endswith(t, "})\n")
+        @test occursin("\"P(A ∣ B)\"", t)                 # plain text, as a string
+        @test occursin(raw"T \\\"q\\\" \\ #x", t)     # quotes and backslashes escaped
+        @test !occursin("outside", t)                         # text outside the plot area dropped
+        @test occursin("dash: (array:", t) && occursin("angle: 90deg", t)
+        @test !occursin("NaN", t) && !occursin("Inf", t)
+        @test count(==('('), t) == count(==(')'), t)
+        @test startswith(cetz(fig; standalone=true), "#set page(")
+        # every coordinate of the first axis's plots stays inside its clip rectangle
+        r = (0.0, 0.0, 1.0, 1.0)
+        @test PBP._clip_polygon([(-1.0, 0.5), (2.0, 0.5), (0.5, 2.0)], r) |> P -> all(p -> 0 <= p[1] <= 1 && 0 <= p[2] <= 1, P)
+        @test PBP._clip_polyline([(-1.0, 0.5), (0.5, 0.5), (0.5, 3.0)], r) == [[(0.0, 0.5), (0.5, 0.5), (0.5, 1.0)]]
+        @test PBP._clip_polyline([(2.0, 2.0), (3.0, 3.0)], r) == Vector{NTuple{2,Float64}}[]
+        @test length(PBP._clip_polyline([(-0.5, 0.5), (0.5, 0.5), (1.5, 0.5), (1.5, 0.2), (0.5, 0.2)], r)) == 2
+        # compile it, where Typst is available
+        typst = Sys.which("typst")
+        if typst !== nothing
+            dir = mktempdir()
+            save(joinpath(dir, "f.typ"), fig; standalone=true)
+            @test success(`$typst compile $(joinpath(dir, "f.typ"))`)
         end
     end
 

@@ -29,7 +29,7 @@ module PracticalBayesPlot
         :hidedecorations!, :hidexdecorations!, :hideydecorations!, :hidespines!,
         :axislegend, :xlims!, :ylims!, :limits!, :colsize!, :rowsize!,
         :traceplot, :densities, :intervals, :intervals!, :ppcheck, :ppcheck!, :todraws,
-        :wong_colors, :rgba, :kde, :svg, :tikz, :save, :preview))
+        :wong_colors, :rgba, :kde, :svg, :tikz, :cetz, :save, :preview))
 end
 
 include("colors.jl")
@@ -41,6 +41,7 @@ include("bayes.jl")
 include("canvas.jl")
 include("render.jl")
 include("tikz.jl")
+include("cetz.jl")
 include("io.jl")
 include("precompile.jl")
 

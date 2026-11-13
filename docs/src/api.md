@@ -87,6 +87,7 @@ heatmap
 ```@docs
 svg
 tikz
+cetz
 save
 preview
 ```

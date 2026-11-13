@@ -9,8 +9,8 @@ A very lightweight, pure Julia plotting package that targets the small set of
 plots typically used in the [Bayesian workflow](https://arxiv.org/abs/2011.01808):
 posterior predictive checks, effect plots, trace plots, residuals and
 interval plots, and the primitives other packages build diagrams from. It has
-no dependencies and draws figures as SVG, or as TikZ pictures whose text LaTeX
-typesets.
+no dependencies and draws figures as SVG, as TikZ pictures whose text LaTeX
+typesets, or as CeTZ drawings for Typst.
 
 It loads in about 40 ms. A first figure, such as a posterior predictive
 check with 50 overlaid densities and a histogram, compiles almost nothing
@@ -249,7 +249,12 @@ PBP.lines!(PBP.current_axis(), [-2, 2], [0, 100])
   mathematics. The picture needs only the `tikz` package.
   `standalone = true` writes a complete document instead, which compiles on
   its own to PDF.
-- `PBP.svg(fig)` and `PBP.tikz(fig)` return the SVG or TikZ as a string.
+- `PBP.save("fig.typ", fig)` writes Typst code that draws the figure with
+  the [CeTZ](https://typst.app/universe/package/cetz) package, to `#include`
+  into a Typst document; its text is set in the document's font.
+  `standalone = true` gives a file that `typst compile` turns into a PDF.
+- `PBP.svg(fig)`, `PBP.tikz(fig)` and `PBP.cetz(fig)` return the SVG, TikZ
+  or CeTZ code as a string.
 
 ## What the primitives draw
 
