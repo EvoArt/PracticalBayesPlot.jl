@@ -403,9 +403,9 @@ the open text group's; `valign` is `:baseline`, `:center` or `:top`. `size`
 typesets (in math mode) instead of `s`.
 """
 function _text!(c::Canvas, x::Float64, y::Float64, s::AbstractString; halign::Symbol=:center,
-                valign::Symbol=:baseline, size::Float64=0.0, bold::Bool=false, rotate::Bool=false,
+                valign::Symbol=:baseline, size::Float64=0.0, bold::Bool=false, angle::Float64=0.0,
                 color::Paint=BLACK, latex::AbstractString="")
-    if '\n' in s && !rotate
+    if '\n' in s && angle == 0
         # one text per line, the block aligned as a whole
         lines = split(s, '\n')
         lx = split(latex, '\n')
@@ -418,8 +418,8 @@ function _text!(c::Canvas, x::Float64, y::Float64, s::AbstractString; halign::Sy
         end
         return
     end
-    c.cetz && return _cz_text(c, x, y, s, halign === :group ? c.tanchor : halign, valign, size, bold, rotate, color)
-    c.tikz && return _tztext(c, x, y, s, halign === :group ? c.tanchor : halign, valign, size, bold, rotate, color, latex)
+    c.cetz && return _cz_text(c, x, y, s, halign === :group ? c.tanchor : halign, valign, size, bold, angle, color)
+    c.tikz && return _tztext(c, x, y, s, halign === :group ? c.tanchor : halign, valign, size, bold, angle, color, latex)
     io = c.io
     print(io, "<text")
     _attr(io, "x", x)
@@ -429,8 +429,8 @@ function _text!(c::Canvas, x::Float64, y::Float64, s::AbstractString; halign::Sy
     size > 0 && print(io, " font-size=\"", _short(size), '"')
     bold && print(io, " font-weight=\"bold\"")
     _isblack(color) || _fill(io, color)
-    if rotate
-        print(io, " transform=\"rotate(-90 ")
+    if angle != 0
+        print(io, " transform=\"rotate(", _short(-angle), ' ')
         _num(io, x)
         print(io, ' ')
         _num(io, y)
@@ -448,7 +448,7 @@ function _fontcmd(io::IO, px::Float64, bold::Bool)
 end
 
 function _tztext(c::Canvas, x::Float64, y::Float64, s::AbstractString, h::Symbol, v::Symbol, size::Float64,
-                 bold::Bool, rotate::Bool, color::Paint, latex::AbstractString)
+                 bold::Bool, angle::Float64, color::Paint, latex::AbstractString)
     b = c.body
     vpart = v === :top ? "north" : v === :center ? "" : "base"
     hpart = h === :left ? "west" : h === :right ? "east" : ""
@@ -463,7 +463,7 @@ function _tztext(c::Canvas, x::Float64, y::Float64, s::AbstractString, h::Symbol
         print(b, ",text=", _tzcolor(c, color))
         color.alpha < 1 && print(b, ",text opacity=", _short(color.alpha))
     end
-    rotate && print(b, ",rotate=90")
+    angle == 0 || print(b, ",rotate=", _short(angle))
     print(b, "] at (")
     _num(b, x); print(b, ','); _num(b, y)
     print(b, ") {")

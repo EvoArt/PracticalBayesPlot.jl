@@ -269,20 +269,21 @@ xlims!(lo, hi) = xlims!(current_axis(), lo, hi)
 ylims!(lo, hi) = ylims!(current_axis(), lo, hi)
 limits!(x1, x2, y1, y2) = limits!(current_axis(), x1, x2, y1, y2)
 
-const LEGEND_POSITIONS = (:lt, :ct, :rt, :lc, :cc, :rc, :lb, :cb, :rb)
+const LEGEND_POSITIONS = (:best, :lt, :ct, :rt, :lc, :cc, :rc, :lb, :cb, :rb)
 
 """
-    axislegend(ax, title=""; position=:rt)
+    axislegend(ax, title=""; position=:best)
 
 Draw a legend inside `ax` listing every plot given a `label`. `position` is
 two letters, horizontal then vertical: `:lt` (left top), `:rt`, `:rb`, `:lb`,
-`:ct`, `:cb`, `:lc`, `:rc` or `:cc`.
+`:ct`, `:cb`, `:lc`, `:rc` or `:cc`; or `:best` (the default), whichever of
+those covers the least of the plotted data (Makie's default is `:rt`).
 """
-function axislegend(ax::Axis, title::AbstractString=""; position::Symbol=:rt)
+function axislegend(ax::Axis, title::AbstractString=""; position::Symbol=:best)
     @nospecialize
     position in LEGEND_POSITIONS ||
         throw(ArgumentError("legend position must be one of $(join(LEGEND_POSITIONS, ", ")); got :$position"))
     ax.legend = (String(title), position)
     return ax
 end
-axislegend(title::AbstractString=""; position::Symbol=:rt) = axislegend(current_axis(), title; position)
+axislegend(title::AbstractString=""; position::Symbol=:best) = axislegend(current_axis(), title; position)

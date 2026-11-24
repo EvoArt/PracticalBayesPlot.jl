@@ -316,7 +316,7 @@ function _draw_axis(c::Canvas, L::AxLayout, fs::Float64, clipid::String)
     # axis labels and title
     xlab = y0 + h + xoff + (ax.xticklabelsvisible ? TGAP + 1.2fs : 0.0) + LGAP
     _showxlabel(ax) && _text!(c, x0 + w / 2, xlab, ax.xlabel; valign=:top)
-    _showylabel(ax) && _text!(c, L.rx0 + 2, y0 + h / 2, ax.ylabel; valign=:top, rotate=true)
+    _showylabel(ax) && _text!(c, L.rx0 + 2, y0 + h / 2, ax.ylabel; valign=:top, angle=90.0)
     isempty(ax.title) || _text!(c, x0 + w / 2, y0 - 0.55fs, ax.title; size=1.15fs, bold=true)
 
     _draw_legend(c, ax, t, fs)
@@ -486,8 +486,110 @@ function _draw(c::Canvas, p::TextPlot, t::Tr)
     for i in eachindex(p.x)
         (isfinite(p.x[i]) && isfinite(p.y[i])) || continue
         _text!(c, _tx(t, p.x[i]), _ty(t, p.y[i]), p.text[i]; halign=p.halign, valign=va, size, color=p.color,
-               latex=isempty(p.latex) ? "" : p.latex[i])
+               latex=isempty(p.latex) ? "" : p.latex[i], angle=isempty(p.rotation) ? 0.0 : rad2deg(p.rotation[i]))
     end
+end
+
+# --- choosing the legend's position (position = :best) -----------------------------------------
+# How much of the plotted data a box (x0, y0, x1, y1), in px, would cover: the length of
+# lines inside it, plus the area of filled shapes inside it (scaled to be comparable),
+# plus a fixed amount per marker or text anchor. The legend goes where this is least.
+
+const _AREAW = 0.2     # px of line counted per px² of fill
+const _POINTW = 12.0   # px of line counted per marker
+
+# length of the segment (ax, ay)-(bx, by) inside the box (Liang–Barsky)
+function _seglen_in(ax, ay, bx, by, r::NTuple{4,Float64})
+    (isfinite(ax) && isfinite(ay) && isfinite(bx) && isfinite(by)) || return 0.0
+    dx, dy = bx - ax, by - ay
+    t0, t1 = 0.0, 1.0
+    for (p, q) in ((-dx, ax - r[1]), (dx, r[3] - ax), (-dy, ay - r[2]), (dy, r[4] - ay))
+        if p == 0
+            q < 0 && return 0.0
+        else
+            u = q / p
+            if p < 0
+                u > t1 && return 0.0
+                t0 = max(t0, u)
+            else
+                u < t0 && return 0.0
+                t1 = min(t1, u)
+            end
+        end
+    end
+    return (t1 - t0) * hypot(dx, dy)
+end
+
+_rectarea_in(xa, xb, ya, yb, r::NTuple{4,Float64}) =
+    max(0.0, min(max(xa, xb), r[3]) - max(min(xa, xb), r[1])) * max(0.0, min(max(ya, yb), r[4]) - max(min(ya, yb), r[2]))
+
+_inbox(x, y, r::NTuple{4,Float64}) = r[1] <= x <= r[3] && r[2] <= y <= r[4]
+
+function _cover(p::Union{LinesPlot,PolyPlot}, t::Tr, r)
+    s = 0.0
+    for k in 2:length(p.x)
+        s += _seglen_in(_tx(t, p.x[k-1]), _ty(t, p.y[k-1]), _tx(t, p.x[k]), _ty(t, p.y[k]), r)
+    end
+    return s
+end
+_cover(p::Union{ScatterPlot,TextPlot}, t::Tr, r) =
+    _POINTW * count(k -> _inbox(_tx(t, p.x[k]), _ty(t, p.y[k]), r), eachindex(p.x))
+function _cover(p::BarsPlot, t::Tr, r)
+    s = 0.0
+    yb = _ty(t, p.fillto)
+    for i in eachindex(p.x)
+        (isfinite(p.x[i]) && isfinite(p.h[i])) || continue
+        s += _rectarea_in(_tx(t, p.x[i] - p.width[i] / 2), _tx(t, p.x[i] + p.width[i] / 2), _ty(t, p.h[i]), yb, r)
+    end
+    return _AREAW * s
+end
+function _cover(p::BandPlot, t::Tr, r)
+    s = 0.0
+    for k in 2:length(p.x)
+        lo, hi = (p.lo[k-1] + p.lo[k]) / 2, (p.hi[k-1] + p.hi[k]) / 2
+        (isfinite(lo) && isfinite(hi)) || continue
+        s += _rectarea_in(_tx(t, p.x[k-1]), _tx(t, p.x[k]), _ty(t, lo), _ty(t, hi), r)
+    end
+    return _AREAW * s
+end
+function _cover(p::RangeBarsPlot, t::Tr, r)
+    s = 0.0
+    for i in eachindex(p.pos)
+        s += p.horizontal ? _seglen_in(_tx(t, p.lo[i]), _ty(t, p.pos[i]), _tx(t, p.hi[i]), _ty(t, p.pos[i]), r) :
+             _seglen_in(_tx(t, p.pos[i]), _ty(t, p.lo[i]), _tx(t, p.pos[i]), _ty(t, p.hi[i]), r)
+    end
+    return s
+end
+_cover(p::RefLinesPlot, t::Tr, r) =
+    sum((p.horizontal ? _seglen_in(t.x0, _ty(t, v), t.x0 + t.w, _ty(t, v), r) :
+         _seglen_in(_tx(t, v), t.y0, _tx(t, v), t.y0 + t.h, r) for v in p.vals); init=0.0)
+_cover(::HeatmapPlot, ::Tr, r) = 0.0     # covers every position alike
+
+# corner of a bw × bh legend box at `pos`
+function _legendxy(t::Tr, pos::Symbol, bw, bh)
+    s = string(pos)
+    inset = 8.0
+    bx = s[1] == 'l' ? t.x0 + inset : s[1] == 'r' ? t.x0 + t.w - inset - bw : t.x0 + (t.w - bw) / 2
+    by = s[2] == 't' ? t.y0 + inset : s[2] == 'b' ? t.y0 + t.h - inset - bh : t.y0 + (t.h - bh) / 2
+    return bx, by
+end
+
+# the position, in order of preference, whose box covers the least data
+const _BEST_ORDER = (:rt, :lt, :rb, :lb, :ct, :cb, :rc, :lc, :cc)
+function _bestpos(ax::Axis, t::Tr, bw, bh)
+    best, bestscore = :rt, Inf
+    for pos in _BEST_ORDER
+        bx, by = _legendxy(t, pos, bw, bh)
+        r = (bx - 6, by - 6, bx + bw + 6, by + bh + 6)       # a little clearance counts too
+        s = 0.0
+        for p in ax.plots
+            s += _cover(p, t, r)
+        end
+        if s < bestscore - 1e-6
+            best, bestscore = pos, s
+        end
+    end
+    return best
 end
 
 # --- legend ------------------------------------------------------------------------------------
@@ -532,10 +634,8 @@ function _draw_legend(c::Canvas, ax::Axis, t::Tr, fs::Float64)
     bw = max(pad + gw + 5 + lw + pad, tw + 2pad)
     nrow = length(entries) + !isempty(title)
     bh = rowh * nrow + pad
-    s = string(pos)
-    inset = 8.0
-    bx = s[1] == 'l' ? t.x0 + inset : s[1] == 'r' ? t.x0 + t.w - inset - bw : t.x0 + (t.w - bw) / 2
-    by = s[2] == 't' ? t.y0 + inset : s[2] == 'b' ? t.y0 + t.h - inset - bh : t.y0 + (t.h - bh) / 2
+    pos === :best && (pos = _bestpos(ax, t, bw, bh))
+    bx, by = _legendxy(t, pos, bw, bh)
     _rect!(c, bx, by, bw, bh, LEGENDFILL, LEGENDSTROKE, 1.0)
     row = 0
     cy(r) = by + pad / 2 + rowh * (r - 0.5)

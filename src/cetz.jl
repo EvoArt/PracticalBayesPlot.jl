@@ -146,7 +146,7 @@ function _cz_marker!(c::Canvas, pts::Vector{NTuple{2,Float64}})
 end
 
 function _cz_text(c::Canvas, x::Float64, y::Float64, s::AbstractString, h::Symbol, v::Symbol, size::Float64,
-                  bold::Bool, rotate::Bool, color::Paint)
+                  bold::Bool, angle::Float64, color::Paint)
     _czinside(c, x, y) || return
     b = c.body
     vpart = v === :top ? "north" : v === :center ? "" : "base"
@@ -156,7 +156,7 @@ function _cz_text(c::Canvas, x::Float64, y::Float64, s::AbstractString, h::Symbo
     print(b, "content(")
     _czpt(b, x, y)
     print(b, ", anchor: \"", anchor, "\"")
-    rotate && print(b, ", angle: 90deg")
+    angle == 0 || print(b, ", angle: ", _short(angle), "deg")
     print(b, ", text(size: ", _short(0.75 * (size > 0 ? size : c.fs)), "pt")
     bold && print(b, ", weight: \"bold\"")
     _isblack(color) || (print(b, ", fill: "); _czcolor(b, color))

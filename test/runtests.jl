@@ -203,6 +203,40 @@ Base.display(d::FakeSVGDisplay, ::MIME"image/svg+xml", x) = (push!(d.shown, x); 
         @test startswith(read(p, String), "\\documentclass")
     end
 
+    @testset "rotated text" begin
+        fig = Figure(; size=(300, 200))
+        ax = Axis(fig[1, 1])
+        text!(ax, 0.5, 0.5; text="tilted", rotation=π / 6)
+        text!(ax, [0.2, 0.8], [0.2, 0.8]; text=["a", "b"], rotation=[0, -π / 2])
+        s = svg(fig)
+        @test wellformed(s)
+        @test occursin("transform=\"rotate(-30 ", s)      # SVG's y points down
+        @test occursin("transform=\"rotate(90 ", s)
+        @test occursin(r"<text[^>]*>a<", s) && !occursin(r"<text[^>]*transform[^>]*>a<", s)
+        @test occursin("rotate=30", tikz(fig))
+        @test occursin("angle: 30deg", cetz(fig))
+        @test_throws DimensionMismatch text!(ax, [1, 2], [1, 2]; text=["a", "b"], rotation=[0.1])
+    end
+
+    @testset "legend placed where it covers the least" begin
+        legendx(s) = parse(Float64, match(r"<rect x=\"([0-9.]+)\"[^>]*fill=\"#fff\" fill-opacity=\"0.85\"", s).captures[1])
+        # a rising line: the upper-left and lower-right corners are empty
+        fig = Figure(; size=(400, 300))
+        ax = Axis(fig[1, 1])
+        lines!(ax, 0:0.01:1, 0:0.01:1; label="rising")
+        axislegend(ax)                                    # :best, the default
+        best = legendx(svg(fig))
+        axislegend(ax; position=:rt)
+        rt = legendx(svg(fig))
+        @test best < 200 < rt
+        # bars filling the left: the legend goes right
+        fig = Figure(; size=(400, 300))
+        ax = Axis(fig[1, 1])
+        barplot!(ax, [1, 2, 3], [0.9, 0.85, 0.1]; label="bars")
+        axislegend(ax, "key"; position=:best)
+        @test legendx(svg(fig)) > 200
+    end
+
     @testset "polygons, heatmaps, aspect, hidden decorations" begin
         fig = Figure(; size=(400, 300))
         ax = Axis(fig[1, 1]; aspect=DataAspect())

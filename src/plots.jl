@@ -76,6 +76,7 @@ struct TextPlot <: PlotObj
     dataspace::Bool            # fontsize in data units (markerspace = :data)
     halign::Symbol
     valign::Symbol
+    rotation::Vector{Float64}  # radians, anticlockwise on the page; empty = none, else one per text
 end
 
 # polygons, one per run of finite points
@@ -425,11 +426,12 @@ end
 
 """
     text!(ax, x, y; text, color=:black, fontsize=12, align=(:left, :bottom),
-          markerspace=:pixel, latex=nothing)
+          markerspace=:pixel, latex=nothing, rotation=0)
 
 Text at data coordinates. `x`, `y` and `text` may be single values or
 vectors of equal length. `align` is (`:left`/`:center`/`:right`,
-`:bottom`/`:center`/`:top`).
+`:bottom`/`:center`/`:top`). `rotation` turns the text about its anchor, in
+radians anticlockwise on the page (as in Makie); one value or one per text.
 
 - `markerspace = :data` measures `fontsize` in data units (of x), so text
   scales with the plot, as in Makie; `:pixel` (default) measures it in pixels.
@@ -437,25 +439,29 @@ vectors of equal length. `align` is (`:left`/`:center`/`:right`,
   [`tikz`](@ref) output typesets it with LaTeX; the SVG output shows `text`.
 """
 function text!(ax::Axis, x, y; text, color=:black, fontsize=12, align=(:left, :bottom),
-               markerspace=:pixel, latex=nothing)
+               markerspace=:pixel, latex=nothing, rotation=0)
     @nospecialize
     ts = text isa AbstractString ? String[text] : String[string(t) for t in text]
     lx = latex === nothing ? String[] :
          latex isa AbstractString ? String[latex] : String[t === nothing ? "" : string(t) for t in latex]
     markerspace in (:pixel, :data) || throw(ArgumentError("markerspace must be :pixel or :data; got $(repr(markerspace))"))
     return _text!(ax, _vec(x), _vec(y), ts, lx, _paint(color), Float64(fontsize), markerspace === :data,
-                  align[1], align[2])
+                  align[1], align[2], rotation isa Real ? (rotation == 0 ? Float64[] : fill(Float64(rotation), length(ts))) :
+                                                       Float64[Float64(r) for r in rotation])
 end
 
 function _text!(ax::Axis, x::Vector{Float64}, y::Vector{Float64}, ts::Vector{String}, lx::Vector{String},
-                c::Paint, fs::Float64, data::Bool, ha::Symbol, va::Symbol)
+                c::Paint, fs::Float64, data::Bool, ha::Symbol, va::Symbol,
+                rot::Vector{Float64}=Float64[])
     (length(x) == length(y) == length(ts)) ||
         throw(DimensionMismatch("x, y and text must have the same length"))
     isempty(lx) || length(lx) == length(ts) ||
         throw(DimensionMismatch("latex must have one entry per text"))
+    isempty(rot) || length(rot) == length(ts) ||
+        throw(DimensionMismatch("rotation must be one value or one per text"))
     ha in (:left, :center, :right) && va in (:bottom, :center, :top) ||
         throw(ArgumentError("align must be (:left|:center|:right, :bottom|:center|:top)"))
-    return _push!(ax, TextPlot(x, y, ts, lx, c, fs, data, ha, va))
+    return _push!(ax, TextPlot(x, y, ts, lx, c, fs, data, ha, va, rot))
 end
 
 """
