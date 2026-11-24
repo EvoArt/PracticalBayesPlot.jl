@@ -384,6 +384,36 @@ Base.display(d::FakeSVGDisplay, ::MIME"image/svg+xml", x) = (push!(d.shown, x); 
         end
     end
 
+    @testset "precompile workload and small API forms" begin
+        @test PBP._workload() === nothing        # every plot type once, as at precompile time
+        fig = Figure()
+        ax = Axis(fig[1, 1])
+        lines!(ax, [1, 2], [1, 2])
+        @test sprint(show, ax) == "Axis(rows 1:1, cols 1:1, 1 plots)"
+        @test isfile(save(joinpath(mktempdir(), "f.typ"), fig))
+        @test_throws ArgumentError ax.aspect = -1
+        @test_throws ArgumentError ax.aspect = "wide"
+        @test_throws ArgumentError ax.limits = (1, 2, 3)
+        ax.aspect = 1.5
+        @test ax.aspect == 1.5
+        ax2 = Axis(fig[2, 1]; limits=((0, 1), nothing))
+        @test ax2.limits[1:2] == (0.0, 1.0) && isnan(ax2.limits[3])
+        ax2.limits = (nothing, (2, 3))
+        @test isnan(ax2.limits[1]) && ax2.limits[3:4] == (2.0, 3.0)
+        @test current_axis() === ax2
+        xlims!(0, 2)
+        ylims!(nothing, 3)
+        @test ax2.limits[1:2] == (0.0, 2.0) && isnan(ax2.limits[3]) && ax2.limits[4] == 3.0
+        limits!(0, 1, 0, 1)
+        @test ax2.limits == (0.0, 1.0, 0.0, 1.0)
+        ylims!(ax2, -1, 1)
+        @test ax2.limits[3:4] == (-1.0, 1.0)
+        @test colsize!(fig, 1, 0.6) === fig
+        @test rowsize!(fig, 1, 0.4) === fig && rowsize!(fig, 2, Relative(0.6)) === fig
+        @test axislegend("title"; position=:rt) === ax2
+        @test ax2.legend == ("title", :rt)
+    end
+
     @testset "display hook" begin
         shown = Any[]
         fake = FakeSVGDisplay(shown)
